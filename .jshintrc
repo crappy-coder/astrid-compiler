@@ -1,0 +1,18 @@
+{
+	"curly": true,
+	"eqeqeq": true,
+	"futurehostile": true,
+	"latedef": true,
+	"undef": true,
+	"unused": false,
+	"maxparams": 6,
+	"noarg": true,
+	"nocomma": true,
+	"nonew": true,
+	
+	"asi": true,
+	"boss": true,
+	
+	"node": true,
+	"devel": true
+}
