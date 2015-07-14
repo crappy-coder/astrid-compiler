@@ -112,9 +112,9 @@ jsc.Utils = {
 	},
 	
 	isStringNullOrEmpty: function(value) {
-		return (jsc.Utils.isNullOrUndefined(value) || value.length === 0);
+		return (jsc.Utils.isNullOrUndefined(value) || (jsc.Utils.isString(value) && value.length === 0));
 	},
-	
+
 	isArray: function(value) {
 		return Array.isArray(value);
 	},

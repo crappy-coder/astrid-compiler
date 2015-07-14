@@ -258,10 +258,25 @@ jsc.TextBuffer.ENCODING = {
 	ASCII: "ASCII",
 	UTF8: "UTF-8",
 	UTF16: "UTF-16"
-}
+};
+
+
+//
+// TextUtils
+//
+jsc.TextUtils = {
+	isWhitespace: function(ch) {
+		return (ch === 0x20 || ch === 0x09 || ch === 0x0B || ch === 0x0C || ch === 0xA0);
+	},
+	
+	isLineTerminator: function(ch) {
+		return (ch === 0x0A || ch === 0x0D || ch === 0x2028 || ch === 0x2029);
+	}
+};
 
 module.exports = {
 	TextSpan: jsc.TextSpan,
 	TextPosition: jsc.TextPosition,
-	TextBuffer: jsc.TextBuffer
+	TextBuffer: jsc.TextBuffer,
+	TextUtils: jsc.TextUtils
 };

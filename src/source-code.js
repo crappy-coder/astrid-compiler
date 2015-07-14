@@ -2,11 +2,11 @@ var utils = require("./utils");
 var text = require("./text");
 var jsc = jsc || {};
 
-jsc.SourceCode = function(text, url, startLine, startIndex, endIndex) {
-	this.text = utils.valueOrDefault(text, "");
+jsc.SourceCode = function(source, url, startLine, startIndex, endIndex) {
+	this.source = utils.valueOrDefault(source, "");
 	this.url = url;
 	this.startLine = Math.max(utils.valueOrDefault(startIndex, 1), 1);
-	this.span = new text.TextSpan(0, this.text.length);
+	this.span = new text.TextSpan(0, this.source.length);
 
 	if(!utils.isNull(startIndex) && !utils.isNull(endIndex))
 	{
@@ -14,7 +14,7 @@ jsc.SourceCode = function(text, url, startLine, startIndex, endIndex) {
 			utils.valueOrDefault(startIndex, 0), utils.valueOrDefault(endIndex, 0));
 	}
 	
-	this.buffer = new text.TextBuffer(this.text, text.TextBuffer.ENCODING.UTF16, this.span.begin, this.span.length);
+	this.buffer = new text.TextBuffer(this.source, text.TextBuffer.ENCODING.UTF16, this.span.begin, this.span.length);
 
 	// immutable
 	Object.freeze(this);
@@ -29,3 +29,7 @@ jsc.SourceCode.prototype = {
 		return this.span.end;
 	}
 }
+
+module.exports = {
+	SourceCode: jsc.SourceCode
+};

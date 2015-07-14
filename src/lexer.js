@@ -1,5 +1,6 @@
 var token = require("./token");
 var utils = require("./utils");
+var source = require("./source-code");
 var text = require("./text");
 var jsc = jsc || {};
 
@@ -7,50 +8,305 @@ jsc.Lexer = function(sourceCode) {
 	if(utils.isNull(sourceCode))
 		throw new Error("The sourceCode argument must not be null.");
 
+	this.state = {
+		lastTokenKind: token.Kind.UNKNOWN,
+		lastLineNumber: 0,
+		position: sourceCode.offsetBegin,
+		end: sourceCode.offsetEnd,
+		lineNumber: sourceCode.startLine,
+		isReparsing: false,
+		isLineBegin: true,
+		hasLineTerminator: false,
+		error: null
+	};
+
 	this.sourceCode = sourceCode;
 	this.sourceBuffer = this.sourceCode.buffer;
 	this.charBuffer = [];
-	this.isReparsing = false;
-	this.isLineBegin = true;
-	this.startIndex = this.sourceCode.offsetBegin;
-	this.endIndex = this.sourceCode.offsetEnd;
-	this.index = this.startIndex;
-	this.current = 0;
-	this.lineNumber = this.sourceCode.startLine;
-	this.lastToken = token.Kind.UNKNOWN;
-	this.hasError = false;
-	this.error = null;
-	this.position = 0;
-}
+	this.ch = this.current;
+};
 
 jsc.Lexer.prototype = {
-	get offset() {
-		return (this.index - this.startIndex);
+	// gets the current character within the buffer
+	get current() {
+		if(this.position < this.state.end)
+			return this.sourceBuffer.getChar(this.position);
+
+		return 0;
 	},
 	
+
+	// gets or sets the lexers current position within the buffer
+	get position() {
+		return this.state.position;
+	},
 	set position(value) {
-		this.hasError = false;
-		this.error = null;
-		this.index = this.startIndex + value;
-		this.current = 0;
+		this.clearError();
+		this.state.position = value;
 		this.charBuffer = [];
+		this.ch = this.current;
+	},
+	
+	
+	// gets or sets the current line number
+	get lineNumber() {
+		return this.state.lineNumber;
+	},
+	set lineNumber(value) {
+		this.state.lineNumber = value;
+	},
+	
+	
+	// gets the last token kind
+	get lastTokenKind() {
+		return this.state.lastTokenKind;
+	},
+	
+
+	// gets or sets the last line number
+	get lastLineNumber() {
+		return this.state.lastLineNumber; 
+	},
+	set lastLineNumber(value) {
+		this.state.lastLineNumber = value;
+	},
+	
+	
+	// gets the last generated error
+	get error() {
+		return this.state.error;
+	},
+	
+	
+	// gets whether or not there is a current line terminator
+	get hasLineTerminator() {
+		return this.state.hasLineTerminator;
+	},
+
+	
+	// gets or sets whether or not we are reparsing
+	get isReparsing() {
+		return this.state.isReparsing;
+	},
+	set isReparsing(value) {
+		this.state.isReparsing = value;
+	},
+	
+	
+	// gets whether or not we've reached the end
+	get isEnd() {
+		return (!this.ch && this.position === this.state.end);
+	},
+	
+	
+	// gets whether or not the next token is a colon
+	get isNextTokenColon() {
 		
-		if(this.index < this.endIndex)
-			this.current = this.sourceBuffer.getChar(this.index);
+		while(this.state.position < this.state.end)
+		{
+			var nextChar = this.peek(this.state.position);
+			
+			if(text.TextUtils.isWhitespace(nextChar) || text.TextUtils.isLineTerminator(nextChar))
+			{
+				this.state.position++;
+				continue;
+			}
+			
+			break;
+		}
+
+		return (this.current === 0x3A);
+	},
+	
+	
+	// gets whether or not the last known token is a completion keyword
+	get isLastTokenCompletionKeyword() {
+		return (this.state.lastTokenKind === token.Kind.CONTINUE ||
+				this.state.lastTokenKind === token.Kind.BREAK    ||
+				this.state.lastTokenKind === token.Kind.RETURN   ||
+				this.state.lastTokenKind === token.Kind.THROW);
+	},
+	
+	
+	next: function() {
+		this.state.position++;
+		this.ch = this.current;
+	},
+	
+	nextLine: function() {
+		if(!text.TextUtils.isLineTerminator(this.ch))
+			this.throwOnError("Expected a line terminator");
+			
+		var prevChar = this.ch;
+		
+		this.next();
+
+		// \n\r
+		if(prevChar === 0x0A && this.ch === 0x0D)
+			this.next();
+
+		this.lineNumber++;
+	},
+	
+	nextToken: function(tok, inStrictMode) {
+		this.throwOnError();
+		
+		if(this.charBuffer.length)
+			this.throwOnError("The character buffer is not empty. Cannot parse the next token with a non-empty character buffer.");
+			
+		this.state.hasLineTerminator = false;
+		
+		var tokKind = token.Kind.ERROR;
+		
+		begin: while(true) 
+		{
+			this.skipWhitespace();
+
+			if(this.isEnd)
+				return tok.Kind.EOF;
+				
+			tok.begin = this.position;
+			
+			switch(jsc.Lexer.getCharacterKind(this.ch))
+			{
+				case jsc.Lexer.CharacterKind.EQUAL:
+					break;
+				case jsc.Lexer.CharacterKind.LESS:
+					break;
+				case jsc.Lexer.CharacterKind.GREATER:
+					break;
+				case jsc.Lexer.CharacterKind.EXCLAMATION:
+					break;
+				case jsc.Lexer.CharacterKind.SLASH:
+					break;
+				case jsc.Lexer.CharacterKind.ADD:
+					break;
+				case jsc.Lexer.CharacterKind.SUBTRACT:
+					break;
+				case jsc.Lexer.CharacterKind.AND:
+					break;
+				case jsc.Lexer.CharacterKind.OR:
+					break;
+				case jsc.Lexer.CharacterKind.XOR:
+					break;
+				case jsc.Lexer.CharacterKind.MODULO:
+					break;
+				case jsc.Lexer.CharacterKind.COMMA:
+					break;
+				case jsc.Lexer.CharacterKind.COLON:
+					break;
+				case jsc.Lexer.CharacterKind.SEMICOLON:
+					break;
+				case jsc.Lexer.CharacterKind.QUESTION:
+					break;
+				case jsc.Lexer.CharacterKind.TILDE:
+					break;
+				case jsc.Lexer.CharacterKind.DOT:
+					break;
+				case jsc.Lexer.CharacterKind.QUOTE:
+					break;
+				case jsc.Lexer.CharacterKind.OPEN_PAREN:
+					break;
+				case jsc.Lexer.CharacterKind.CLOSE_PAREN:
+					break;
+				case jsc.Lexer.CharacterKind.OPEN_BRACKET:
+					break;
+				case jsc.Lexer.CharacterKind.CLOSE_BRACKET:
+					break;
+				case jsc.Lexer.CharacterKind.OPEN_BRACE:
+					break;
+				case jsc.Lexer.CharacterKind.CLOSE_BRACE:
+					break;
+				case jsc.Lexer.CharacterKind.ZERO:
+					break;
+				case jsc.Lexer.CharacterKind.NUMBER:
+					break;
+				case jsc.Lexer.CharacterKind.LINE_TERMINATOR:
+					break;
+				case jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN:
+					this.throwOnError(!jsx.Lexer.isIdentifierBegin(this.ch));				
+				case jsc.Lexer.CharacterKind.BACKSLASH:
+					tokKind = this.parseIdentifier(tok, inStrictMode);
+					break;
+				case jsc.Lexer.CharacterKind.INVALID:
+					break;
+				default:
+					break;
+			}
+		}
+		
+	},
+	
+	nextTokenImpl: function(tok, tokKind, inStrictMode) {
+
+	},
+	
+	skipWhitespace: function() {
+		while(text.TextUtils.isWhitespace(this.ch))
+			this.next();
+	},
+	
+	parseIdentifier: function(tok, inStrictMode) {
+	
+	},
+	
+	peek: function(offset) {
+		if((this.position+offset) < this.state.end)
+			return this.sourceBuffer.getChar(this.position+offset);
+
+		return 0;
+	},
+	
+	seek: function(offset) {
+		this.state.position += offset;
+		this.ch = this.current;
+	},
+	
+	appendChar: function(ch) {
+		this.charBuffer.push(ch);
+	},
+	
+	appendString: function(index, length) {
+		for(var i = index; i < length; i++)
+			this.appendChar(this.sourceBuffer.getChar(i));
+	},
+	
+	clear: function() {
+		this.state.isReparsing = false;
+		this.charBuffer = [];
+	},
+	
+	setError: function(message) {
+		this.state.error = message;
+	},
+	
+	clearError: function() {
+		this.state.error = null;
+	},
+
+	throwOnError: function(message) {
+		// set and throw an immediate error when there is a message, otherwise
+		// throw only when an error already exists
+		if(!utils.isStringNullOrEmpty(message))
+			this.setError(message);
+
+		// only throw when an error exists
+		if(!utils.isStringNullOrEmpty(this.state.error))
+			throw new Error(this.state.error);
 	}
-}
+};
 
 jsc.Lexer.isIdentifierBegin = function(ch) {
 	return (jsc.Lexer.CharacterKindMap[ch] === jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN);
-}
+};
 
 jsc.Lexer.isIdentifierPart = function(ch) {
 	return (jsc.Lexer.CharacterKindMap[ch] >= jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN);
-}
+};
 
 jsc.Lexer.getCharacterKind = function(ch) {
 	return jsc.Lexer.CharacterKindMap[ch];
-}
+};
 
 (function() {
 
@@ -328,7 +584,7 @@ jsc.Lexer.getCharacterKind = function(ch) {
 
 
 module.exports = {
-	create: function() {
-		return new jsc.Lexer();
+	create: function(text, url, startLine, startIndex, endIndex) {
+		return new jsc.Lexer(new source.SourceCode(text, url, startLine, startIndex, endIndex));
 	}
 }
