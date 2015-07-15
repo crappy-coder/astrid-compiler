@@ -22,19 +22,12 @@ jsc.Lexer = function(sourceCode) {
 
 	this.sourceCode = sourceCode;
 	this.sourceBuffer = this.sourceCode.buffer;
-	this.charBuffer = [];
-	this.ch = this.current;
+	this.chBuffer = [];
+	this.ch = this.getChar();
+	this.chCode = this.getCharCode();
 };
 
 jsc.Lexer.prototype = {
-	// gets the current character within the buffer
-	get current() {
-		if(this.position < this.state.end)
-			return this.sourceBuffer.getChar(this.position);
-
-		return 0;
-	},
-	
 
 	// gets or sets the lexers current position within the buffer
 	get position() {
@@ -43,8 +36,9 @@ jsc.Lexer.prototype = {
 	set position(value) {
 		this.clearError();
 		this.state.position = value;
-		this.charBuffer = [];
-		this.ch = this.current;
+		this.chBuffer = [];
+		this.ch = this.getChar();
+		this.chCode = this.getCharCode();
 	},
 	
 	
@@ -95,7 +89,7 @@ jsc.Lexer.prototype = {
 	
 	// gets whether or not we've reached the end
 	get isEnd() {
-		return (!this.ch && this.position === this.state.end);
+		return (!this.chCode && this.position === this.state.end);
 	},
 	
 	
@@ -115,7 +109,7 @@ jsc.Lexer.prototype = {
 			break;
 		}
 
-		return (this.current === 0x3A);
+		return (this.getChar() === ':');
 	},
 	
 	
@@ -130,7 +124,8 @@ jsc.Lexer.prototype = {
 	
 	next: function() {
 		this.state.position++;
-		this.ch = this.current;
+		this.ch = this.getChar();
+		this.chCode = this.getCharCode();
 	},
 	
 	nextLine: function() {
@@ -141,104 +136,548 @@ jsc.Lexer.prototype = {
 		
 		this.next();
 
-		// \n\r
-		if(prevChar === 0x0A && this.ch === 0x0D)
+		if(prevChar === '\n' && this.ch === '\r')
 			this.next();
 
 		this.lineNumber++;
 	},
 	
 	nextToken: function(tok, inStrictMode) {
+		inStrictMode = utils.valueOrDefault(inStrictMode, false);
+
 		this.throwOnError();
 		
-		if(this.charBuffer.length)
+		if(this.chBuffer.length)
 			this.throwOnError("The character buffer is not empty. Cannot parse the next token with a non-empty character buffer.");
 			
 		this.state.hasLineTerminator = false;
 		
 		var tokKind = token.Kind.ERROR;
+		var hasError = false;
+		var inSingleLineComment = false;
+		var inNumberAfterDecimalPoint = false;
 		
-		begin: while(true) 
+		loop: 
+		while(true) 
 		{
 			this.skipWhitespace();
 
 			if(this.isEnd)
-				return tok.Kind.EOF;
+				return token.Kind.EOF;
 				
 			tok.begin = this.position;
 			
-			switch(jsc.Lexer.getCharacterKind(this.ch))
+			switch(jsc.Lexer.getCharacterKind(this.chCode))
 			{
 				case jsc.Lexer.CharacterKind.EQUAL:
-					break;
+				{
+					this.next();
+					
+					if(this.ch === '=')
+					{
+						this.next();
+						
+						if(this.ch === '=')
+						{
+							this.next();
+							tokKind = token.Kind.STRICT_EQUAL;
+							break loop;
+						}
+						
+						tokKind = token.Kind.EQUAL_EQUAL;
+						break loop;
+					}
+
+					tokKind = token.Kind.EQUAL;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.LESS:
-					break;
+				{
+					this.next();
+
+					// start of a www line comment '<!--'
+					if(this.ch === '!' && this.peek(1) === '-' && this.peek(2) === '-')
+					{
+						inSingleLineComment = true;
+						break;
+					}
+					
+					if(this.ch === '<')
+					{
+						this.next();
+						
+						// '<<='
+						if(this.ch === '=')
+						{
+							this.next();
+							tokKind = token.Kind.LSHIFT_EQUAL;
+							break loop;
+						}
+						
+						// '<<'						
+						tokKind = token.Kind.LSHIFT;
+						break loop;
+					}
+					
+					// '<='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.LESS_EQUAL;
+						break loop;
+					}
+					
+					// '<'
+					tokKind = token.Kind.LESS;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.GREATER:
-					break;
+				{
+					this.next();
+					
+					if(this.ch === '>')
+					{
+						this.next();
+						
+						if(this.ch === '>')
+						{
+							this.next();
+							
+							// '>>>='
+							if(this.ch === '=')
+							{
+								this.next();
+								tokKind = token.Kind.URSHIFT_EQUAL;
+								break loop;
+							}
+							
+							// '>>>'
+							tokKind = token.Kind.URSHIFT;
+							break loop;
+						}
+						
+						// '>>='
+						if(this.ch === '=')
+						{
+							this.next();
+							tokKind = token.Kind.RSHIFT_EQUAL;
+							break loop;
+						}
+						
+						// '>>'
+						tokKind = token.Kind.RSHIFT;
+						break loop;
+					}
+					
+					// '>='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.GREATER_EQUAL;
+						break loop;
+					}
+					
+					// '>'
+					tokKind = token.Kind.GREATER;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.EXCLAMATION:
-					break;
+				{
+					this.next();
+					
+					if(this.ch === '=')
+					{
+						this.next();
+						
+						// '!=='
+						if(this.ch === '=')
+						{
+							this.next();
+							tokKind = token.Kind.STRICT_NOT_EQUAL;
+							break loop;
+						}
+						
+						// '!='
+						tokKind = token.Kind.NOT_EQUAL;
+						break loop;
+					}
+					
+					// '!'
+					tokKind = token.Kind.EXCLAMATION;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.SLASH:
-					break;
+				{
+					this.next();
+					
+					if(this.ch === '/')
+					{
+						this.next();
+						inSingleLineComment = true;
+						break;
+					}
+					
+					if(this.ch === '*')
+					{
+						this.next();
+						
+						if(this.parseMultilineComment())
+							continue loop;
+							
+						hasError = true;
+						this.setError("Multiline comment was not properly closed.");
+						break;
+					}
+					
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.DIV_EQUAL;
+						break loop;
+					}
+					
+					tokKind = token.Kind.DIV;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.ADD:
-					break;
+				{
+					this.next();
+					
+					// '++'
+					if(this.ch === '+')
+					{
+						this.next();
+						tokKind = (!this.hasLineTerminator ? token.Kind.PLUSPLUS : token.Kind.PLUSPLUS_AUTO);
+						break loop;
+					}
+					
+					// '+='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.PLUS_EQUAL;
+						break loop;
+					}
+					
+					// '+'
+					tokKind = token.Kind.PLUS;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.SUBTRACT:
-					break;
+				{
+					this.next();
+					
+					if(this.ch === '-')
+					{
+						this.next();
+						
+						// '-->' www end comment
+						if(this.ch === '>' && this.state.isLineBegin)
+						{
+							this.next();
+							inSingleLineComment = true;
+							break;
+						}
+						
+						// '--'
+						tokKind = (!this.hasLineTerminator ? token.Kind.MINUSMINUS : token.Kind.MINUSMINUS_AUTO);
+						break loop;
+					}
+					
+					// '-='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.MINUS_EQUAL;
+						break loop;
+					}
+					
+					// '-'
+					tokKind = token.Kind.MINUS;
+					break loop;
+				}
+				case jsc.Lexer.CharacterKind.MULTIPLY:
+				{
+					this.next();
+					
+					// '*='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.MULT_EQUAL;
+						break loop;
+					}
+					
+					// '*'
+					tokKind = token.Kind.MULT;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.AND:
-					break;
+				{
+					this.next();
+					
+					// '&&'
+					if(this.ch === '&')
+					{
+						this.next();
+						tokKind = token.Kind.AND;
+						break loop;
+					}
+					
+					// '&='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.AND_EQUAL;
+						break loop;
+					}
+					
+					// '&'
+					tokKind = token.Kind.BITWISE_AND;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.OR:
-					break;
+				{
+					this.next();
+					
+					// '|='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.OR_EQUAL;
+						break loop;
+					}
+					
+					// '||'
+					if(this.ch === '|')
+					{
+						this.next();
+						tokKind = token.Kind.OR;
+						break loop;
+					}
+					
+					// '|'
+					tokKind = token.Kind.BITWISE_OR;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.XOR:
-					break;
+				{
+					this.next();
+					
+					// '^='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.XOR_EQUAL;
+						break loop;
+					}
+					
+					// '^'
+					tokKind = token.Kind.BITWISE_XOR;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.MODULO:
-					break;
+				{
+					this.next();
+					
+					// '%='
+					if(this.ch === '=')
+					{
+						this.next();
+						tokKind = token.Kind.MOD_EQUAL;
+						break loop;
+					}
+					
+					// '%'
+					tokKind = token.Kind.MOD;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.COMMA:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.COMMA;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.COLON:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.COLON;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.SEMICOLON:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.SEMICOLON;
+					break loop;
+				}	
 				case jsc.Lexer.CharacterKind.QUESTION:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.QUESTION;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.TILDE:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.TILDE;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.DOT:
+				{
+					this.next();
+					
+					if(!text.TextUtils.isDigit(this.ch))
+					{
+						tokKind = token.Kind.DOT;
+						break loop;
+					}
+					
+					inNumberAfterDecimalPoint = true;
 					break;
+				}
 				case jsc.Lexer.CharacterKind.QUOTE:
-					break;
+				{
+					if(!this.parseString(tok, inStrictMode))
+					{
+						hasError = true;
+						break;
+					}
+					
+					this.next();
+					tokKind = token.Kind.STRING;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.OPEN_PAREN:
-					break;
+				{
+					tokKind = token.Kind.OPEN_PAREN;
+					this.next();
+					
+					break loop;
+				}	
 				case jsc.Lexer.CharacterKind.CLOSE_PAREN:
-					break;
+				{
+					tokKind = token.Kind.CLOSE_PAREN;
+					this.next();
+					
+					break loop;
+				}	
 				case jsc.Lexer.CharacterKind.OPEN_BRACKET:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.OPEN_BRACKET;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.CLOSE_BRACKET:
-					break;
+				{
+					this.next();
+					tokKind = token.Kind.CLOSE_BRACKET;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.OPEN_BRACE:
-					break;
+				{
+					tokKind = token.Kind.OPEN_BRACE;
+					tok.value = this.position;
+					this.next();
+					
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.CLOSE_BRACE:
-					break;
+				{
+					tokKind = token.Kind.CLOSE_BRACE;
+					tok.value = this.position;
+					this.next();
+					
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.ZERO:
-					break;
+				// fall through
 				case jsc.Lexer.CharacterKind.NUMBER:
-					break;
+				{
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.LINE_TERMINATOR:
+				{
+					if(!text.TextUtils.isLineTerminator(this.ch))
+						this.throwOnError(utils.format("Expected a line terminator. Actual character found: '%s'.", this.ch));
+						
+					this.nextLine();
+					
+					this.state.isLineBegin = true;
+					this.state.hasLineTerminator = true;
 					break;
+				}
 				case jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN:
-					this.throwOnError(!jsx.Lexer.isIdentifierBegin(this.ch));				
+				{
+					if(!jsc.Lexer.isIdentifierBegin(this.chCode))
+						this.throwOnError(utils.format("Expected an identifier begin character. Actual character found: '%s'.", this.ch));
+				}
 				case jsc.Lexer.CharacterKind.BACKSLASH:
+				{
 					tokKind = this.parseIdentifier(tok, inStrictMode);
-					break;
+					break loop;
+				}
 				case jsc.Lexer.CharacterKind.INVALID:
+				{
+					hasError = true;
+					this.setError("Invalid character.");
 					break;
+				}
 				default:
+				{
+					hasError = true;
+					this.setError("Unknown error.");
 					break;
+				}
+			}
+			
+			if(inNumberAfterDecimalPoint)
+			{
+				// TODO: implement decimal point parsing
+				inNumberAfterDecimalPoint = false;
+			}
+			
+			if(hasError)
+				break;
+
+			if(inSingleLineComment)
+			{
+				while(!text.TextUtils.isLineTerminator(this.ch))
+				{
+					if(this.isEnd)
+						return token.Kind.EOF;
+						
+					this.next();
+				}
+				
+				this.nextLine();
+				
+				this.state.isLineBegin = true;
+				this.state.hasLineTerminator = true;
+				
+				if(!this.isLastTokenCompletionKeyword)
+				{
+					inSingleLineComment = false;
+					continue;
+				}
+
+				tokKind = token.Kind.SEMICOLON;
+				break;
 			}
 		}
 		
-	},
-	
-	nextTokenImpl: function(tok, tokKind, inStrictMode) {
+		tok.line = this.lineNumber;
+		tok.end = this.position;
+		
+		if(hasError)
+			return token.Kind.ERROR;
 
+		if(!inSingleLineComment)
+			this.state.isLineBegin = false;
+
+		this.state.lastTokenKind = tokKind;
+		tok.kind = tokKind
+		
+		return tokKind;
 	},
 	
 	skipWhitespace: function() {
@@ -247,23 +686,214 @@ jsc.Lexer.prototype = {
 	},
 	
 	parseIdentifier: function(tok, inStrictMode) {
+		var remain = this.state.end - this.position;
+		
+		if(remain >= jsc.Lexer.MAX_KEYWORD_LENGTH)
+		{
+			var keyword = this.parseKeyword(tok);
+			
+			if(keyword !== token.Kind.IDENTIFIER)
+			{
+				if(utils.isNull(tok.value))
+					this.throwOnError("The token has no identifier value.");
+					
+				return (keyword === token.Kind.RESERVED_STRICT && !inStrictMode ? token.Kind.IDENTIFIER : keyword);
+			}
+		}
+
+		var identifierBeginIndex = this.position;
+		
+		while(jsc.Lexer.isIdentifierPart(this.chCode))
+			this.next();
+			
+		if(this.ch === '\\')
+		{
+			this.position = identifierBeginIndex;
+			return this.parseIdentifierOrEscape(tok, inStrictMode);
+		}
+		
+		tok.value = this.getString(identifierBeginIndex, this.position - identifierBeginIndex);
+		
+		if(remain < jsc.Lexer.MAX_KEYWORD_LENGTH)
+		{
+			var identifierTokenKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
+			
+			if(identifierTokenKind === token.Kind.UNKNOWN)
+				return token.Kind.IDENTIFIER;
+				
+			return (identifierTokenKind !== token.Kind.RESERVED_STRICT || inStrictMode ? identifierTokenKind : token.Kind.IDENTIFIER);
+		}
+
+		return token.Kind.IDENTIFIER;
+	},
 	
+	parseIdentifierOrEscape: function(tok, inStrictMode) {
+		var remain = this.state.end - this.position;
+		var identifierBeginIndex = this.position;
+		var identifierBeginChar = this.getChar();
+		var identifierBeginCharCode = this.getCharCode();
+		var useBuffer = false;
+		
+		while(true)
+		{
+			if(jsc.Lexer.isIdentifierPart(this.chCode))
+			{
+				this.next();
+				continue;
+			}
+			
+			if(this.ch !== '\\')
+				break;
+				
+			// \uXXXX unicode characters
+			useBuffer = true;
+			
+			if(identifierBeginCharCode !== this.getCharCode())
+				this.appendString(this.position, this.position - identifierBeginIndex);
+				
+			this.next();
+			
+			if(this.ch !== 'u')
+				return token.Kind.ERROR;
+				
+			this.next();
+			
+			// TODO: parseUnicodeHex
+			this.throwOnError("NOT IMPLEMENTED");
+		}
+		
+		this.throwOnError("NOT IMPLEMENTED");
+	},
+	
+	parseKeyword: function(tok) {
+		if((this.state.end - this.position) < jsc.Lexer.MAX_KEYWORD_LENGTH)
+			this.throwOnError("Unable to parse keyword.");
+			
+		var c = this.getChar();
+		
+		// function, for, false, finally
+		if(c === 'f')
+		{
+			if(this.compareString("function"))
+			{
+				if(!jsc.Lexer.isIdentifierPart(this.peek(8)))
+				{
+					this.seek(8);
+					tok.value = "function";
+					return token.Kind.FUNCTION;
+				}
+			}
+			else if(this.compareString("for"))
+			{
+				if(!jsc.Lexer.isIdentifierPart(this.peek(3)))
+				{
+					this.seek(3);
+					tok.value = "for";
+					return token.Kind.FOR;
+				}
+			}
+			else if(this.compareString("false"))
+			{
+				if(!jsc.Lexer.isIdentifierPart(this.peek(5)))
+				{
+					this.seek(5);
+					tok.value = "false";
+					return token.Kind.FALSE;
+				}
+			}
+			else if(this.compareString("finally"))
+			{
+				if(!jsc.Lexer.isIdentifierPart(this.peek(7)))
+				{
+					this.seek(7);
+					tok.value = "finally";
+					return token.Kind.FINALLY;
+				}
+			}
+		}
+		else if(this.compareString("break"))
+		{
+			if(!jsc.Lexer.isIdentifierPart(this.peek(5)))
+			{
+				this.seek(5);
+				tok.value = "break";
+				return token.Kind.BREAK;
+			}
+		}
+
+		return token.Kind.IDENTIFIER;
+	},
+	
+	parseMultilineComment: function() {
+		while(true)
+		{
+			while(this.ch === '*')
+			{
+				this.next();
+				
+				if(this.ch === '/')
+				{
+					this.next();
+					return true;
+				}
+			}
+			
+			if(this.isEnd)
+				return false;
+				
+			if(!text.TextUtils.isLineTerminator(this.ch))
+				this.next();
+			else
+			{
+				this.nextLine();
+				this.state.hasLineTerminator = true;
+			}
+		}
+	},
+	
+	compareString: function(str) {
+		for(var i = 0; i < str.length; i++)
+		{
+			if(this.peek(i) !== str[i])
+				return false;
+		}
+		
+		return true;
 	},
 	
 	peek: function(offset) {
 		if((this.position+offset) < this.state.end)
 			return this.sourceBuffer.getChar(this.position+offset);
 
-		return 0;
+		return null;
 	},
 	
 	seek: function(offset) {
 		this.state.position += offset;
-		this.ch = this.current;
+		this.ch = this.getChar();
+		this.chCode = this.getCharCode();
+	},
+	
+	getChar: function() {
+		if(this.position < this.state.end)
+			return this.sourceBuffer.getChar(this.position);
+
+		return null;
+	},
+	
+	getCharCode: function() {
+		if(this.position < this.state.end)
+			return this.sourceBuffer.getCharCode(this.position);
+
+		return 0;
+	},
+
+	getString: function(offset, len) {
+		return this.sourceBuffer.toString(offset, len);
 	},
 	
 	appendChar: function(ch) {
-		this.charBuffer.push(ch);
+		this.chBuffer.push(ch);
 	},
 	
 	appendString: function(index, length) {
@@ -273,7 +903,7 @@ jsc.Lexer.prototype = {
 	
 	clear: function() {
 		this.state.isReparsing = false;
-		this.charBuffer = [];
+		this.chBuffer = [];
 	},
 	
 	setError: function(message) {
@@ -296,6 +926,8 @@ jsc.Lexer.prototype = {
 	}
 };
 
+jsc.Lexer.MAX_KEYWORD_LENGTH = 11;
+
 jsc.Lexer.isIdentifierBegin = function(ch) {
 	return (jsc.Lexer.CharacterKindMap[ch] === jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN);
 };
@@ -306,6 +938,13 @@ jsc.Lexer.isIdentifierPart = function(ch) {
 
 jsc.Lexer.getCharacterKind = function(ch) {
 	return jsc.Lexer.CharacterKindMap[ch];
+};
+
+jsc.Lexer.getTokenKindFromIdentifier = function(id) {
+	if(token.Identifiers.hasOwnProperty(id))
+		return token.Identifiers[id];
+		
+	return token.Kind.UNKNOWN;
 };
 
 (function() {

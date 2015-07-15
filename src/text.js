@@ -126,6 +126,10 @@ jsc.TextBuffer.prototype = {
 	},
 	
 	getChar: function(index) {
+		return String.fromCharCode(this.getCharCode(index));
+	},
+	
+	getCharCode: function(index) {
 		var len = this.source.length;
 		var part = this.source[index];
 		
@@ -219,7 +223,7 @@ jsc.TextBuffer.prototype = {
 		{
 			for(var i = 0; index < end; i++)
 			{
-				code = this.getChar(index);
+				code = this.getCharCode(index);
 				
 				callback.call(me || null, code, i, index, this);
 				index += this.getCharLength(code);
@@ -233,24 +237,30 @@ jsc.TextBuffer.prototype = {
 	},
 	
 	valueOf: function() {
+		return this.toString();
+	},
+	
+	toString: function(offset, len) {
+		offset = utils.valueOrDefault(offset, 0);
+		len = utils.valueOrDefault(len, this.source.length);
+		
 		if(this.encoding === jsc.TextBuffer.ENCODING.UTF8 || this.encoding === jsc.TextBuffer.ENCODING.UTF16)
 		{
 			var s = "";
 			
-			for(var ch, i = 0, len = this.source.length; i < len; i += this.getCharLength(ch))
+			for(var ch, i = 0; i < len; i += this.getCharLength(ch))
 			{
-				ch = this.getChar(i);
+				ch = this.getCharCode(i+offset);
 				s += String.fromCharCode(ch);
 			}
 
 			return s;
 		}
 		
-		return String.fromCharCode.apply(null, this.source);
-	},
-	
-	toString: function() {
-		return this.valueOf();
+		if(offset === 0 && len === this.source.length)
+			return String.fromCharCode.apply(null, this.source);
+
+		return String.fromCharCode.apply(null, this.source.subarray(offset, offset+len));
 	}
 };
 
@@ -266,11 +276,27 @@ jsc.TextBuffer.ENCODING = {
 //
 jsc.TextUtils = {
 	isWhitespace: function(ch) {
-		return (ch === 0x20 || ch === 0x09 || ch === 0x0B || ch === 0x0C || ch === 0xA0);
+		return (ch === '\u0020' || ch === '\u0009' || ch === '\u000B' || ch === '\u000C' || ch === '\u00A0');
 	},
 	
 	isLineTerminator: function(ch) {
-		return (ch === 0x0A || ch === 0x0D || ch === 0x2028 || ch === 0x2029);
+		return (ch === '\u000A' || ch === '\u000D' || ch === '\u2028' || ch === '\u2029');
+	},
+	
+	isAlpha: function(ch) {
+		return ((ch >= '\u0041' && ch <= '\u005A') || (ch >= '\u0061' && ch <= '\u007A'))
+	},
+	
+	isDigit: function(ch) {
+		return (ch >= '\u0030' && ch <= '\u0039');
+	},
+	
+	isAlphaNumeric: function(ch) {
+		return (jsc.TextUtils.isAlpha(ch) || jsc.TextUtils.isDigit(ch));
+	},
+	
+	isHexDigit: function(ch) {
+		return (jsc.TextUtils.isDigit(ch) || ((ch >= '\u0041' && ch <= '\u0046') || (ch >= '\u0061' && ch <= '\u0066')));
 	}
 };
 
