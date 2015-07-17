@@ -17,7 +17,8 @@ jsc.Lexer = function(sourceCode) {
 		isReparsing: false,
 		isLineBegin: true,
 		hasLineTerminator: false,
-		error: null
+		error: null,
+		debugMode: false
 	};
 
 	this.sourceCode = sourceCode;
@@ -25,10 +26,18 @@ jsc.Lexer = function(sourceCode) {
 	this.chBuffer = [];
 	this.ch = this.getChar();
 	this.chCode = this.getCharCode();
+	this.chLast = null;
 };
 
 jsc.Lexer.prototype = {
-
+	// gets or sets whether or not to output debugging information
+	get debugMode() {
+		return this.state.debugMode;
+	},
+	set debugMode(value) {
+		this.state.debugMode = value;
+	},
+	
 	// gets or sets the lexers current position within the buffer
 	get position() {
 		return this.state.position;
@@ -37,6 +46,7 @@ jsc.Lexer.prototype = {
 		this.clearError();
 		this.state.position = value;
 		this.chBuffer = [];
+		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
 	},
@@ -124,6 +134,7 @@ jsc.Lexer.prototype = {
 	
 	next: function() {
 		this.state.position++;
+		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
 	},
@@ -155,7 +166,8 @@ jsc.Lexer.prototype = {
 		var tokKind = token.Kind.ERROR;
 		var hasError = false;
 		var inSingleLineComment = false;
-		var inNumberAfterDecimalPoint = false;
+		var inNumber = false;
+		var validateNumericLiteral = false;
 		
 		loop: 
 		while(true) 
@@ -166,7 +178,7 @@ jsc.Lexer.prototype = {
 				return token.Kind.EOF;
 				
 			tok.begin = this.position;
-			
+
 			switch(jsc.Lexer.getCharacterKind(this.chCode))
 			{
 				case jsc.Lexer.CharacterKind.EQUAL:
@@ -214,7 +226,7 @@ jsc.Lexer.prototype = {
 							break loop;
 						}
 						
-						// '<<'						
+						// '<<'
 						tokKind = token.Kind.LSHIFT;
 						break loop;
 					}
@@ -525,18 +537,18 @@ jsc.Lexer.prototype = {
 				case jsc.Lexer.CharacterKind.DOT:
 				{
 					this.next();
-					
+
 					if(!text.TextUtils.isDigit(this.ch))
 					{
 						tokKind = token.Kind.DOT;
 						break loop;
 					}
 					
-					inNumberAfterDecimalPoint = true;
+					inNumber = true;
 					break;
 				}
 				case jsc.Lexer.CharacterKind.QUOTE:
-				{
+				{					
 					if(!this.parseString(tok, inStrictMode))
 					{
 						hasError = true;
@@ -590,16 +602,53 @@ jsc.Lexer.prototype = {
 					break loop;
 				}
 				case jsc.Lexer.CharacterKind.ZERO:
-				// fall through
+				{
+					this.next();
+					
+					if((this.ch === 'x' || this.ch === 'X') && text.TextUtils.isHexDigit(this.peek(1)))
+					{
+						this.parseHex(tok);
+						tokKind = token.Kind.NUMBER;
+						validateNumericLiteral = true;
+						break;
+					}
+					else
+					{
+						this.appendChar('0');
+						
+						if(text.TextUtils.isOctalDigit(this.ch))
+						{
+							if(this.parseOctal(tok))
+							{
+								if(inStrictMode)
+								{
+									hasError = true;
+									this.setError("Octal escape sequences are not allowed in strict mode.");
+									break;
+								}
+								
+								tokKind = token.Kind.NUMBER;
+								validateNumericLiteral = true;
+								break;
+							}
+						}
+					}
+					
+				} // fall through to Number
 				case jsc.Lexer.CharacterKind.NUMBER:
 				{
-					break loop;
+					inNumber = true;
+					
+					if(tokKind != token.Kind.NUMBER)
+						tokKind = token.Kind.NUMBER;
+
+					break;
 				}
 				case jsc.Lexer.CharacterKind.LINE_TERMINATOR:
 				{
 					if(!text.TextUtils.isLineTerminator(this.ch))
 						this.throwOnError(utils.format("Expected a line terminator. Actual character found: '%s'.", this.ch));
-						
+					
 					this.nextLine();
 					
 					this.state.isLineBegin = true;
@@ -630,10 +679,55 @@ jsc.Lexer.prototype = {
 				}
 			}
 			
-			if(inNumberAfterDecimalPoint)
+			if(inNumber)
 			{
-				// TODO: implement decimal point parsing
-				inNumberAfterDecimalPoint = false;
+				inNumber = false;
+
+				switch(1)
+				{
+					default:
+					{
+						if(this.chLast === '.' || !this.parseDecimal(tok))
+						{
+							if(this.ch === '.')
+								this.next();
+							
+							if(this.chLast === '.')
+								this.parseNumberAfterDecimalPoint();
+
+							if(this.ch === 'e' || this.ch === 'E')
+							{
+								if(!this.parseNumberAfterExponent())
+								{
+									hasError = true;
+									this.setError("Non-Number was found after the exponent indicator.");
+									break;
+								}
+							}
+							
+							tok.value = parseFloat(this.chBuffer.join(""));
+							tokKind = token.Kind.NUMBER;
+						}
+					}
+				}
+				
+				validateNumericLiteral = true;
+			}
+			
+			if(validateNumericLiteral)
+			{
+				validateNumericLiteral = false;
+				
+				// no identifiers are allowed directly after a numeric literal, i.e. "1cm"
+				if(jsc.Lexer.isIdentifierBegin(this.chCode))
+				{
+					hasError = true;
+					this.setError("At least one digit must occur after a decimal point.");
+					break;
+				}
+
+				this.chBuffer = [];
+				break loop;
 			}
 			
 			if(hasError)
@@ -771,57 +865,138 @@ jsc.Lexer.prototype = {
 			
 		var c = this.getChar();
 		
-		// function, for, false, finally
-		if(c === 'f')
+		for(var keyword in token.Identifiers)
 		{
-			if(this.compareString("function"))
+			if(!token.Identifiers.hasOwnProperty(keyword))
+				continue;
+			
+			if(c === keyword[0] && this.compareString(keyword))
 			{
-				if(!jsc.Lexer.isIdentifierPart(this.peek(8)))
+				if(!jsc.Lexer.isIdentifierPart(this.peek(keyword.length)))
 				{
-					this.seek(8);
-					tok.value = "function";
-					return token.Kind.FUNCTION;
+					this.seek(keyword.length);
+					tok.value = keyword;
+					return token.Identifiers[keyword];
 				}
-			}
-			else if(this.compareString("for"))
-			{
-				if(!jsc.Lexer.isIdentifierPart(this.peek(3)))
-				{
-					this.seek(3);
-					tok.value = "for";
-					return token.Kind.FOR;
-				}
-			}
-			else if(this.compareString("false"))
-			{
-				if(!jsc.Lexer.isIdentifierPart(this.peek(5)))
-				{
-					this.seek(5);
-					tok.value = "false";
-					return token.Kind.FALSE;
-				}
-			}
-			else if(this.compareString("finally"))
-			{
-				if(!jsc.Lexer.isIdentifierPart(this.peek(7)))
-				{
-					this.seek(7);
-					tok.value = "finally";
-					return token.Kind.FINALLY;
-				}
-			}
-		}
-		else if(this.compareString("break"))
-		{
-			if(!jsc.Lexer.isIdentifierPart(this.peek(5)))
-			{
-				this.seek(5);
-				tok.value = "break";
-				return token.Kind.BREAK;
 			}
 		}
 
 		return token.Kind.IDENTIFIER;
+	},
+	
+	parseString: function(tok, inStrictMode) {
+		var startOffset = this.position;
+		var quoteChar = this.ch;
+		
+		this.next();
+		
+		while(this.ch !== quoteChar)
+		{
+			if(this.ch === '\\')
+			{
+				if(startOffset != this.position)
+					this.appendString(startOffset, this.position - startOffset);
+					
+				this.next();
+				
+				var escapeChar = text.TextUtils.getEscapeChar(this.ch);
+				
+				if(escapeChar)
+				{
+					this.appendChar(escapeChar);
+					this.next();
+				}
+				else if(text.TextUtils.isLineTerminator(this.ch))
+					this.nextLine();
+				else if(this.ch === 'x')
+				{
+					this.next();
+					
+					if(!text.TextUtils.isHexDigit(this.ch) || !text.TextUtils.isHexDigit(this.peek(1)))
+					{
+						this.setError("\\x can only be followed by a hex character sequence.");
+						return false;
+					}
+					
+					this.appendChar(String.fromCharCode(parseInt(this.ch+this.peek(1), 16)));
+					this.seek(2);
+				}
+				else if(this.ch === 'u')
+				{
+					this.next();
+					
+					var unicodeChar = this.parseUnicodeHex();
+					
+					if(unicodeChar != null)
+						this.appendChar(unicodeChar);
+					else if(this.ch === quoteChar)
+						this.appendChar('u');
+					else
+					{
+						this.setError("\\u can only be followed by a Unicode character sequence.");
+						return false;
+					}
+				}
+				else if(inStrictMode && text.TextUtils.isDigit(this.ch))
+				{
+					var prevChar = this.ch;
+					
+					this.next();
+					
+					if(prevChar !== '0' || text.TextUtils.isDigit(this.ch))
+					{
+						this.setError("The only valid numeric escape in strict mode is '\\0'.");
+						return false;
+					}
+					
+					this.appendChar('\0');
+				}
+				else if(!inStrictMode && text.TextUtils.isOctalDigit(this.ch))
+				{
+					var octalChars = [];
+					
+					for(var i = 0; i < 3; i++)
+					{
+						if(!text.TextUtils.isOctalDigit(this.ch))
+							break;
+							
+						octalChars[i] = this.ch;
+						this.next();
+					}
+
+					this.appendChar(String.fromCharCode(parseInt(octalChars.join(""), 8)));
+				}
+				else if(!this.isEnd)
+				{
+					this.appendChar(this.ch);
+					this.next();
+				}
+				else
+				{
+					this.setError("Unterminated string constant.");
+					return false;
+				}
+				
+				startOffset = this.position;
+				continue;
+			}
+			
+			if(this.isEnd || text.TextUtils.isLineTerminator(this.ch))
+			{
+				this.setError("Unexpected end of file.");
+				return false;
+			}
+			
+			this.next();
+		}
+		
+		if(this.position !== startOffset)
+			this.appendString(startOffset, this.position - startOffset);
+			
+		tok.value = this.chBuffer.join("");
+		this.chBuffer = [];
+		
+		return true;
 	},
 	
 	parseMultilineComment: function() {
@@ -851,6 +1026,119 @@ jsc.Lexer.prototype = {
 		}
 	},
 	
+	parseDecimal: function(tok) {
+		var decimalValue = 0;
+
+		if(!this.chBuffer.length)
+		{
+			var maxDigits = 9;
+			var digits = [];
+			
+			do
+			{
+				decimalValue = decimalValue * 10 + (this.chCode - 0x30);
+				digits[maxDigits--] = this.ch;
+
+				this.next();
+			}
+			while(text.TextUtils.isDigit(this.ch) && maxDigits >= 0);
+			
+			if(maxDigits >= 0 && this.ch !== '.' && this.ch !== 'e' && this.ch !== 'E')
+			{
+				tok.value = decimalValue;
+				return true;
+			}
+			
+			for(var i = 9; i > maxDigits; --i)
+				this.appendChar(digits[i]);
+		}
+		
+		while(text.TextUtils.isDigit(this.ch))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		return false;
+	},
+	
+	parseHex: function(tok) {
+		this.next();
+		
+		while(text.TextUtils.isHexDigit(this.ch))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		tok.value = parseInt(this.chBuffer.join(""), 16);
+		return true;
+	},
+
+	parseUnicodeHex: function() {
+		var a = this.ch;
+		var b = this.peek(1);
+		var c = this.peek(2);
+		var d = this.peek(3);
+		
+		if(!text.TextUtils.isHexDigit(a) || !text.TextUtils.isHexDigit(b) || !text.TextUtils.isHexDigit(c) || !text.TextUtils.isHexDigit(d))
+			return null;
+		
+		this.seek(4);
+
+		return String.fromCharCode(parseInt(a+b+c+d, 16));
+	},
+	
+	parseOctal: function(tok) {		
+		while(text.TextUtils.isOctalDigit(this.ch))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		tok.value = parseInt(this.chBuffer.join(""), 8);
+		return true;
+	},
+	
+	parseDigit: function(code, radix) {
+
+	},
+	
+	parseNumberAfterDecimalPoint: function() {
+		this.appendChar('.');
+		
+		while(text.TextUtils.isDigit(this.ch))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		return true;
+	},
+	
+	parseNumberAfterExponent: function() {
+		this.appendChar('e');
+		this.next();
+		
+		if(this.ch === '+' || this.ch === '-')
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		if(!text.TextUtils.isDigit(this.ch))
+			return false;
+			
+		do
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		while(text.TextUtils.isDigit(this.ch));
+		
+		return true;
+	},
+	
 	compareString: function(str) {
 		for(var i = 0; i < str.length; i++)
 		{
@@ -870,6 +1158,7 @@ jsc.Lexer.prototype = {
 	
 	seek: function(offset) {
 		this.state.position += offset;
+		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
 	},
@@ -878,7 +1167,7 @@ jsc.Lexer.prototype = {
 		if(this.position < this.state.end)
 			return this.sourceBuffer.getChar(this.position);
 
-		return null;
+		return '\0';
 	},
 	
 	getCharCode: function() {
@@ -897,7 +1186,7 @@ jsc.Lexer.prototype = {
 	},
 	
 	appendString: function(index, length) {
-		for(var i = index; i < length; i++)
+		for(var i = index; i < index+length; i++)
 			this.appendChar(this.sourceBuffer.getChar(i));
 	},
 	
@@ -923,7 +1212,12 @@ jsc.Lexer.prototype = {
 		// only throw when an error exists
 		if(!utils.isStringNullOrEmpty(this.state.error))
 			throw new Error(this.state.error);
-	}
+	},
+	
+	debugLog: function(msg /*, ... */) {
+		if(this.debugMode)
+			console.log(utils.format.apply(null, arguments));
+	},
 };
 
 jsc.Lexer.MAX_KEYWORD_LENGTH = 11;
@@ -948,7 +1242,7 @@ jsc.Lexer.getTokenKindFromIdentifier = function(id) {
 };
 
 (function() {
-
+	
 	// the IDENTIFIER_BEGIN kind and any kinds after it must
 	// only be a kind that represent an identifier char, add
 	// all other kinds before IDENTIFIER_BEGIN

@@ -297,6 +297,60 @@ jsc.TextUtils = {
 	
 	isHexDigit: function(ch) {
 		return (jsc.TextUtils.isDigit(ch) || ((ch >= '\u0041' && ch <= '\u0046') || (ch >= '\u0061' && ch <= '\u0066')));
+	},
+	
+	isOctalDigit: function(ch) {
+		return (ch >= '\u0030' && ch <= '\u0037');
+	},
+	
+	isAscii: function(ch) {
+		return (ch >= '\u0000' && ch <= '\u007F');
+	},
+	
+	isLower: function(ch) {
+		return (ch >= '\u0061' && ch <= '\u007A');
+	},
+	
+	isUpper: function(ch) {
+		return (ch >= '\u0041' && ch <= '\u005A');
+	},
+	
+	toHex: function(a, b) {
+		return ((jsc.TextUtils.toHexValue(a) << 4) | jsc.TextUtils.toHexValue(b));
+	},
+	
+	toHexValue: function(code) {
+		return (code < 0x41 ? code - 0x30 : (code - 0x41 + 10) & 0x0F);
+	},
+	
+	toUnicode: function(a, b, c, d) {
+		return ((jsc.TextUtils.toHex(a, b) << 8) | jsc.TextUtils.toHex(c, d));
+	},
+	
+	getEscapeChar: function(ch) {
+		switch(ch)
+		{
+			case 'b':
+				return '\u0008';
+			case 't':
+				return '\u0009';
+			case 'n':
+				return '\u000A';
+			case 'v':
+				return '\u000B';
+			case 'f':
+				return '\u000C';
+			case 'r':
+				return '\u000D';
+			case '\\':
+				return '\u005C';
+			case '\'':
+				return '\u0027';
+			case '"':
+				return '\u0022';
+			default:
+				return 0;
+		}
 	}
 };
 
