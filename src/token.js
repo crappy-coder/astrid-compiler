@@ -8,6 +8,24 @@ jsc.Token = function() {
 	this.value = null;
 }
 
+jsc.Token.getName = function(kind) {
+	var kinds = jsc.Token.Kind;
+	var i = 0;
+	
+	for(var k in kinds)
+	{
+		if(!kinds.hasOwnProperty(k))
+			continue;
+			
+		if(kinds[k] === kind)
+			return jsc.Token.KindNames[i];
+
+		i++;
+	}
+
+	return "INVALID";
+};
+
 jsc.Token.IN_PRECEDENCE				= 4;
 jsc.Token.PRECEDENCE				= 8;
 jsc.Token.PRECEDENCE_MASK			= 15 << jsc.Token.PRECEDENCE;
@@ -20,6 +38,15 @@ jsc.Token.KEYWORD 					= 128;
 	var precedence = jsc.Token.PRECEDENCE;
 	var precedence_shift = jsc.Token.PRECEDENCE + jsc.Token.IN_PRECEDENCE;
 	var punctuator = 0;
+	
+	// the token kind names must be kept in sync with the token kinds
+	jsc.Token.KindNames = [
+		"", "null", "true", "false", "break", "case", "default", "for", "new", "var", "const", "continue", "function",
+		"", "if", "this", "do", "while", "switch", "with", "", "", "throw", "try", "catch", "finally",
+		"debugger", "else", "{", "}", "(", ")", "[", "]", ",", "?", ";", ":", ".", "=", "+=", "-=", "*=", "/=", "<<=", ">>=", ">>>=",
+		"&=", "|=", "^=", "%=", "", "", "", "", "", "||", "&&", "|", "^", "&", "==", "!=", "===", "!==", "<", ">", "<=", ">=", "instanceof",
+		"in", "<<", ">>", ">>>", "+", "-", "*", "/", "%", "++", "++", "--", "--", "!", "~", "typeof", "void", "delete"
+	];
 	
 	jsc.Token.Kind = Object.freeze({
 		UNKNOWN			: -1,

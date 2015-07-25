@@ -75,7 +75,6 @@ jsc.Lexer.prototype = {
 		this.state.lastLineNumber = value;
 	},
 	
-	
 	// gets the last generated error
 	get error() {
 		return this.state.error;
@@ -639,7 +638,7 @@ jsc.Lexer.prototype = {
 				{
 					inNumber = true;
 					
-					if(tokKind != token.Kind.NUMBER)
+					if(tokKind !== token.Kind.NUMBER)
 						tokKind = token.Kind.NUMBER;
 
 					break;
@@ -774,6 +773,183 @@ jsc.Lexer.prototype = {
 		return tokKind;
 	},
 	
+	nextIdentifer: function(tok, inStrictMode) {
+		var startOffset = this.position;
+		
+		if(this.position >= this.state.end)
+		{
+			if(this.position !== this.state.end)
+				this.throwOnError("Reached the end of file.");
+				
+			return this.nextToken(tok, inStrictMode);
+		}
+		
+		if(!text.TextUtils.isAlpha(this.getChar()))
+			return this.nextToken(tok, inStrictMode);
+			
+		++this.position;
+		
+		while(this.position < this.state.end)
+		{
+			if(!text.TextUtils.isAlphaNumeric(this.getChar()))
+				break;
+			
+			++this.position;
+		}
+		
+		if(this.position >= this.state.end)
+		{
+			this.ch = '\0';
+			this.chCode = 0;
+		}
+		else
+		{
+			var currentChar = this.getChar();
+			var currentCharCode = this.getCharCode();
+			
+			if(!text.TextUtils.isAscii(currentChar) || currentChar === '\\' || currentChar === '_' || currentChar === '$')
+				return this.nextToken(tok, inStrictMode);
+				
+			this.ch = currentChar;
+			this.chCode = currentCharCode;
+		}
+		
+		this.appendString(startOffset, this.position - startOffset);
+		
+		tok.line = this.lineNumber;
+		tok.begin = startOffset;
+		tok.end = this.position;
+		tok.value = this.chBuffer.join("");
+		
+		this.chBuffer = [];
+		this.state.lastTokenKind = token.Kind.IDENTIFIER;
+
+		return this.state.lastTokenKind;
+	},
+	
+	scanRegEx: function(patternPrefix) {
+		patternPrefix = utils.valueOrDefault(patternPrefix, '\0');
+		
+		if(this.chBuffer.length)
+			this.throwOnError("Character buffer has not been emptied.");
+			
+		var lastCharIsEscape = false;
+		var inBrackets = false;
+		var pattern = null;
+		var flags = null;
+		
+		if(patternPrefix !== '\0')
+		{
+			if(text.TextUtils.isLineTerminator(patternPrefix))
+				this.throwOnError("The regular expression patternPrefix cannot be a line terminator.");
+				
+			if(patternPrefix === '/')
+				this.throwOnError("The regular expression patternPrefix cannot be a '/' character.");
+				
+			if(patternPrefix === '[')
+				this.throwOnError("The regular expression patternPrefix cannot be a '[' character.");
+				
+			this.appendChar(patternPrefix);
+		}
+		
+		while(true)
+		{
+			if(text.TextUtils.isLineTerminator(this.ch) || this.isEnd)
+			{
+				this.chBuffer = [];
+				return null;
+			}
+			
+			var prevChar = this.ch;
+			
+			this.next();
+			
+			if(prevChar === '/' && !lastCharIsEscape && !inBrackets)
+				break;
+				
+			this.appendChar(prevChar);
+			
+			if(lastCharIsEscape)
+			{
+				lastCharIsEscape = false;
+				continue;
+			}
+			
+			switch(prevChar)
+			{
+				case '[':
+					inBrackets = true;
+					break;
+				case ']':
+					inBrackets = false;
+					break;
+				case '\\':
+					lastCharIsEscape = true;
+					break;
+			}
+		}
+		
+		pattern = this.chBuffer.join("");
+		this.chBuffer = [];
+		
+		while(jsc.Lexer.isIdentifierPart(this.chCode))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+		
+		flags = this.chBuffer.join("");
+		this.chBuffer = [];
+		
+		return {
+			pattern: pattern,
+			patternPrefix: patternPrefix,
+			flags: flags
+		};
+	},
+	
+	skipRegEx: function() {
+		var lastCharIsEscape = false;
+		var inBrackets = false;
+		
+		while(true)
+		{
+			if(text.TextUtils.isLineTerminator(this.ch) || this.isEnd)
+				return false;
+			
+			var prevChar = this.ch;
+			
+			this.next();
+			
+			if(prevChar === '/' && !lastCharIsEscape && !inBrackets)
+				break;
+			
+			if(lastCharIsEscape)
+			{
+				lastCharIsEscape = false;
+				continue;
+			}
+			
+			switch(prevChar)
+			{
+				case '[':
+					inBrackets = true;
+					break;
+				case ']':
+					inBrackets = false;
+					break;
+				case '\\':
+					lastCharIsEscape = true;
+					break;
+			}
+		}
+		
+		while(jsc.Lexer.isIdentifierPart(this.chCode))
+			this.next();
+			
+		return true;
+	},
+	
 	skipWhitespace: function() {
 		while(text.TextUtils.isWhitespace(this.ch))
 			this.next();
@@ -827,6 +1003,7 @@ jsc.Lexer.prototype = {
 		var identifierBeginChar = this.getChar();
 		var identifierBeginCharCode = this.getCharCode();
 		var useBuffer = false;
+		var i, len;
 		
 		while(true)
 		{
@@ -835,28 +1012,86 @@ jsc.Lexer.prototype = {
 				this.next();
 				continue;
 			}
-			
+
 			if(this.ch !== '\\')
 				break;
-				
+
 			// \uXXXX unicode characters
 			useBuffer = true;
 			
 			if(identifierBeginCharCode !== this.getCharCode())
-				this.appendString(this.position, this.position - identifierBeginIndex);
+			{
+				len = this.position - identifierBeginIndex;
+				
+				for(i = 0; i < len; i++)
+					this.appendChar(identifierBeginChar);
+			}
 				
 			this.next();
-			
+
 			if(this.ch !== 'u')
 				return token.Kind.ERROR;
 				
 			this.next();
 			
-			// TODO: parseUnicodeHex
-			this.throwOnError("NOT IMPLEMENTED");
+			var unicodeCharCode = this.parseUnicodeHexCode();
+			
+			if(unicodeCharCode === null)
+				return token.Kind.ERROR;
+				
+			if(this.chBuffer.length ? !jsc.Lexer.isIdentifierPart(unicodeCharCode) : !jsc.Lexer.isIdentifierBegin(unicodeCharCode))
+				return token.Kind.ERROR;
+				
+			this.appendChar(String.fromCharCode(unicodeCharCode));
+			
+			identifierBeginIndex = this.position;
+			identifierBeginChar = this.getChar();
+			identifierBeginCharCode = this.getCharCode();
 		}
 		
-		this.throwOnError("NOT IMPLEMENTED");
+		var identifierLength = 0;
+		var identifier = null;
+
+		if(!useBuffer)
+		{
+			identifierLength = this.position - identifierBeginIndex;
+			
+			for(i = identifierBeginIndex; i < identifierLength; i++)
+				identifier += this.sourceBuffer.getChar(i);
+		}
+		else
+		{
+			if(identifierBeginCharCode !== this.getCharCode())
+			{
+				len = this.position - identifierBeginIndex;
+				
+				for(i = 0; i < len; i++)
+					this.appendChar(identifierBeginChar);
+			}
+			
+			identifier = this.chBuffer.join("");
+		}
+		
+		tok.value = identifier;
+		
+		if(!useBuffer)
+		{
+			if(remain < jsc.Lexer.MAX_KEYWORD_LENGTH)
+			{
+				var tokKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
+				
+				if(tokKind === token.Kind.UNKNOWN)
+					return token.Kind.IDENTIFIER;
+					
+				return (tokKind !== token.Kind.RESERVED_STRICT || inStrictMode ? tokKind : token.Kind.IDENTIFIER);
+			}
+			
+			return token.Kind.IDENTIFIER
+		}
+		
+		this.chBuffer = [];
+		
+		return token.Kind.IDENTIFIER;
 	},
 	
 	parseKeyword: function(tok) {
@@ -885,16 +1120,17 @@ jsc.Lexer.prototype = {
 	},
 	
 	parseString: function(tok, inStrictMode) {
-		var startOffset = this.position;
 		var quoteChar = this.ch;
 		
 		this.next();
+		
+		var startOffset = this.position;
 		
 		while(this.ch !== quoteChar)
 		{
 			if(this.ch === '\\')
 			{
-				if(startOffset != this.position)
+				if(startOffset !== this.position)
 					this.appendString(startOffset, this.position - startOffset);
 					
 				this.next();
@@ -927,7 +1163,7 @@ jsc.Lexer.prototype = {
 					
 					var unicodeChar = this.parseUnicodeHex();
 					
-					if(unicodeChar != null)
+					if(unicodeChar !== null)
 						this.appendChar(unicodeChar);
 					else if(this.ch === quoteChar)
 						this.appendChar('u');
@@ -1075,7 +1311,7 @@ jsc.Lexer.prototype = {
 		return true;
 	},
 
-	parseUnicodeHex: function() {
+	parseUnicodeHexCode: function() {
 		var a = this.ch;
 		var b = this.peek(1);
 		var c = this.peek(2);
@@ -1086,7 +1322,16 @@ jsc.Lexer.prototype = {
 		
 		this.seek(4);
 
-		return String.fromCharCode(parseInt(a+b+c+d, 16));
+		return parseInt(a+b+c+d, 16);
+	},
+	
+	parseUnicodeHex: function() {
+		var code = this.parseUnicodeHexCode();
+		
+		if(code === null)
+			return null;
+		
+		return String.fromCharCode(code);
 	},
 	
 	parseOctal: function(tok) {		
@@ -1517,7 +1762,5 @@ jsc.Lexer.getTokenKindFromIdentifier = function(id) {
 
 
 module.exports = {
-	create: function(text, url, startLine, startIndex, endIndex) {
-		return new jsc.Lexer(new source.SourceCode(text, url, startLine, startIndex, endIndex));
-	}
+	Lexer: jsc.Lexer
 }

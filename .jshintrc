@@ -1,5 +1,5 @@
 {
-	"curly": true,
+	"curly": false,
 	"eqeqeq": true,
 	"futurehostile": true,
 	"latedef": true,
@@ -9,6 +9,7 @@
 	"noarg": true,
 	"nocomma": true,
 	"nonew": true,
+	"-W086": true, //allow fall-through
 	
 	"asi": true,
 	"boss": true,

@@ -60,14 +60,16 @@ jsc.TextBuffer = function(str, encoding, offset, length) {
 	
 	var chStartIndex = this.startIndex;
 	var chEndIndex = this.endIndex;
+	var i;
 	
 	switch(this.encoding)
 	{
 		// UTF-8
 		case jsc.TextBuffer.ENCODING.UTF8:
+		{
 			this.bufferLength = 0;
 			
-			for(var i = 0; i < this.strlen; i++)
+			for(i = 0; i < this.strlen; i++)
 			{
 				if(i === chStartIndex)
 					this.startIndex = this.bufferLength;
@@ -79,17 +81,19 @@ jsc.TextBuffer = function(str, encoding, offset, length) {
 			}
 			
 			this.buffer = new Uint8Array(this.bufferLength);
-					
-			for(var i = 0, chIndex = 0; i < this.bufferLength; chIndex++)
+			
+			var chIndex = 0;
+			
+			for(i = 0; i < this.bufferLength; chIndex++)
 				i = this.putChar(this.str.charCodeAt(chIndex), i);
 
 			break;
-			
+		}
 		// UTF-16
 		case jsc.TextBuffer.ENCODING.UTF16:
 			this.buffer = new Uint16Array(this.bufferLength);
 			
-			for(var i = 0; i < this.bufferLength; i++)
+			for(i = 0; i < this.bufferLength; i++)
 				this.buffer[i] = this.str.charCodeAt(i);
 			
 			break;
@@ -98,7 +102,7 @@ jsc.TextBuffer = function(str, encoding, offset, length) {
 		default:
 			this.buffer = new Uint8Array(this.bufferLength);
 			
-			for(var i = 0; i < this.bufferLength; i++)
+			for(i = 0; i < this.bufferLength; i++)
 				this.buffer[i] = this.str.charCodeAt(i) & 0xFF;
 
 			break;
@@ -133,7 +137,7 @@ jsc.TextBuffer.prototype = {
 		var len = this.source.length;
 		var part = this.source[index];
 		
-		if(this.encoding == jsc.TextBuffer.ENCODING.UTF16)
+		if(this.encoding === jsc.TextBuffer.ENCODING.UTF16)
 		{
 			if(part > 0xD7BF && index + 1 < len)
 				return (part - 0xD800 << 10) + this.source[index+1] + 0x2400;
