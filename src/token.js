@@ -26,11 +26,11 @@ jsc.Token.getName = function(kind) {
 	return "INVALID";
 };
 
-jsc.Token.IN_PRECEDENCE				= 4;
-jsc.Token.PRECEDENCE				= 8;
-jsc.Token.PRECEDENCE_MASK			= 15 << jsc.Token.PRECEDENCE;
-jsc.Token.UNARY 					= 64;
-jsc.Token.KEYWORD 					= 128;
+jsc.Token.IN_PRECEDENCE				= 0x04;
+jsc.Token.PRECEDENCE				= 0x08;
+jsc.Token.PRECEDENCE_MASK			= 0x0F << jsc.Token.PRECEDENCE;
+jsc.Token.UNARY 					= 0x40;
+jsc.Token.KEYWORD 					= 0x80;
 
 (function() {
 	var keyword = jsc.Token.KEYWORD;

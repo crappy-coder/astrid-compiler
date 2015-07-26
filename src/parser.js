@@ -90,7 +90,7 @@ jsc.Parser.prototype = {
 		var lexLine = this.lexer.lineNumber;
 		var lexError = this.lexer.error;
 		
-		lexer.clear();
+		this.lexer.clear();
 		
 		if(!utils.isStringNullOrEmpty(errorMessage) || lexError)
 		{
@@ -103,7 +103,7 @@ jsc.Parser.prototype = {
 		if(!this.statements)
 			return null;
 
-		var program = new ast.ProgramNode(
+		var program = new ast.SciptNode(
 			this.sourceCode,
 			this.lexer.lastLineNumber,
 			this.state.lastLine,

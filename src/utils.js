@@ -14,7 +14,7 @@ jsc.Utils = {
 			})
 		})
 		
-		return obj;
+		return (obj === destObj ? obj : Object.freeze(obj));
 	},
 	
 	format: function(str) {
