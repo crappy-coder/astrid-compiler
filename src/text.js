@@ -1,5 +1,4 @@
 var utils = require("./utils");
-var jsc = jsc || {};
 
 //
 // TextSpan

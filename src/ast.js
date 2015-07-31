@@ -1,14 +1,11 @@
 var utils = require("./utils");
 var text = require("./text");
 var lex = require("./lexer");
-var jsc = jsc || {};
-
-jsc.AST = jsc.AST || {};
 
 
 //=============================================================================
 // Context
-//   • The AST parsing context.
+//   ï¿½ The AST parsing context.
 //=============================================================================
 jsc.AST.Context = function() {
 
@@ -17,7 +14,7 @@ jsc.AST.Context = function() {
 
 //=============================================================================
 // Node
-//   • The base class for all AST nodes.
+//   ï¿½ The base class for all AST nodes.
 //=============================================================================
 jsc.AST.Node = function(lineNumber) {
 	this.lineNumber = utils.valueOrDefault(lineNumber, 1);
@@ -27,7 +24,7 @@ jsc.AST.Node = function(lineNumber) {
 
 //=============================================================================
 // Expression
-//   • The base class for all language expressions.
+//   ï¿½ The base class for all language expressions.
 //=============================================================================
 jsc.AST.Expression = function(lineNumber, resultKind) {
 	this.resultKind = utils.valueOrDefault(resultKind, jsc.AST.ExpressionResultKind.Unknown);
@@ -42,7 +39,7 @@ jsc.AST.Expression.prototype = {
 
 //=============================================================================
 // ArrayElement
-//   • An item (element) stored within an array.
+//   ï¿½ An item (element) stored within an array.
 //=============================================================================
 jsc.AST.ArrayElement = function(elision, expr, nextEl) {
 	this.elision = elision;
@@ -56,7 +53,7 @@ jsc.AST.ArrayElement = function(elision, expr, nextEl) {
 
 //=============================================================================
 // ScriptNode
-//   • An AST node that represents a complete program (script).
+//   ï¿½ An AST node that represents a complete program (script).
 //=============================================================================
 jsc.AST.ScriptNode = function(sourceCode, line, lastLine, props) {
 
@@ -65,7 +62,7 @@ jsc.AST.ScriptNode = function(sourceCode, line, lastLine, props) {
 
 //=============================================================================
 // ExpressionResultKind
-//   • Represents the type of value that an expression will most likely
+//   ï¿½ Represents the type of value that an expression will most likely
 //     produce once the expression has been evaluated.
 //=============================================================================
 jsc.AST.ExpressionResultKind = function(kind) {

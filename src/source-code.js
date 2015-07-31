@@ -1,6 +1,5 @@
 var utils = require("./utils");
 var text = require("./text");
-var jsc = jsc || {};
 
 jsc.SourceCode = function(source, url, startLine, startIndex, endIndex) {
 	this.source = utils.valueOrDefault(source, "");

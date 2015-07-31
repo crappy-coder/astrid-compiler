@@ -1,105 +1,105 @@
+var jsc = require("./jsc");
 var ast = require("./ast");
 var token = require("./token");
 var utils = require("./utils");
 var source = require("./source-code");
 var text = require("./text");
 var lex = require("./lexer");
-var jsc = jsc || {};
 
 /*
 	Parser parser(globalContext, sourceCode, parameters, Parser::ParserStrictnessNormal, Parser::ParserModeProgram);
 	ProgramNode* program = parser.Parse<ProgramNode>();
 */
 
-jsc.Parser = function(sourceCode, parameters, inStrictMode, parserMode) {
-	if(utils.isNull(sourceCode))
-		throw new Error("The sourceCode argument must not be null.");
-		
-	this.state = {
-		mode: utils.valueOrDefault(parserMode, jsc.Parser.Mode.PROGRAM),
-		inStrictMode: inStrictMode,
-		lastIdentifier: null,
-		lastLine: 0,
-		lastTokenBegin: 0,
-		lastTokenEnd: 0,
-		assignmentCount: 0,
-		constantCount: 0,
-		nonLHSCount: 0,
-		nonTrivialExprCount: 0,
-		statementDepth: 0,
-		features: 0,
-		allowsIn: true,
-		debugMode: false,
-		hasSyntaxBeenValidated: true,
-		error: null
-	};
-		
-	this.sourceCode = sourceCode;
-	this.lexer = new lex.Lexer(sourceCode);
-	this.tok = new token();
-	this.scopeStack = [];
-	this.statements = null;
-	this.variableDecls = null;
-	this.functions = null;
-	this.capturedVariables = null;
-}
+jsc.Parser = Object.define({
+	initialize: function(sourceCode, parameters, inStrictMode, parserMode) {
+		if(utils.isNull(sourceCode))
+			throw new Error("The sourceCode argument must not be null.");
 
-jsc.Parser.prototype = {
+		this.state = {
+			mode: utils.valueOrDefault(parserMode, jsc.Parser.Mode.PROGRAM),
+			inStrictMode: inStrictMode,
+			lastIdentifier: null,
+			lastLine: 0,
+			lastTokenBegin: 0,
+			lastTokenEnd: 0,
+			assignmentCount: 0,
+			constantCount: 0,
+			nonLHSCount: 0,
+			nonTrivialExprCount: 0,
+			statementDepth: 0,
+			features: 0,
+			allowsIn: true,
+			debugMode: false,
+			hasSyntaxBeenValidated: true,
+			error: null
+		};
+
+		this.sourceCode = sourceCode;
+		this.lexer = new lex.Lexer(sourceCode);
+		this.tok = new token();
+		this.scopeStack = [];
+		this.statements = null;
+		this.variableDecls = null;
+		this.functions = null;
+		this.capturedVariables = null;
+	},
+
 	get debugMode() {
 		return this.state.debugMode;
 	},
 	set debugMode(value) {
 		this.state.debugMode = value;
 	},
-	
+
 	get mode() {
 		return this.state.mode;
 	},
-	
+
 	get inStrictMode() {
 		return this.state.inStrictMode;
 	},
-	
+
 	get features() {
 		return this.state.features;
 	},
-	
+
 	get error() {
 		return this.state.error;
 	},
-	
+
 	get scope() {
 		return this.scopeStack[this.scopeStack.length-1];
 	},
-	
+
 	get tokenString() {
 		return this.sourceCode.toString(this.tok.begin, this.tok.end);
 	},
-	
+
 	parse: function(asFunction) {
 		var errorLine = -1;
 		var errorMessage = "";
-		
+
 		if(asFunction)
 			this.lexer.isReparsing = true;
-			
+
 		this.statements = null;
-		
+
 		errorMessage = this.parseImpl();
-		
+
 		var lexLine = this.lexer.lineNumber;
 		var lexError = this.lexer.error;
-		
+
 		this.lexer.clear();
-		
+
 		if(!utils.isStringNullOrEmpty(errorMessage) || lexError)
 		{
 			errorLine = lexLine;
 			errorMessage = lexError ? lexError : errorMessage;
-			
+
 			this.statements = null;
 		}
-		
+
 		if(!this.statements)
 			return null;
 
@@ -108,42 +108,42 @@ jsc.Parser.prototype = {
 			this.lexer.lastLineNumber,
 			this.state.lastLine,
 			{
-				statements: this.statements, 
-				declarations: this.variableDecls, 
-				functions: this.functions, 
-				vars: this.capturedVariables, 
-				features: this.features, 
+				statements: this.statements,
+				declarations: this.variableDecls,
+				functions: this.functions,
+				vars: this.capturedVariables,
+				features: this.features,
 				constantCount: this.state.constantCount
 			});
 	},
-	
+
 	parseImpl: function() {
-	
+
 	},
-	
+
 	pushScope: function() {
 		var isFunction = false;
 		var isStrict = false;
-		
+
 		if(this.scopeStack.length)
 		{
 			isFunction = this.scope.isFunction;
 			isStrict = this.scope.strictMode;
 		}
-		
+
 		this.scopeStack.push(new jsc.ParserScope(isFunction, isStrict));
-		
+
 		return this.scope;
 	},
-	
+
 	popScope: function(shouldTrackClosedVariables) {
 		if(this.scopeStack.length <= 1)
 			this.throwOnError("Unable to leave the current scope.");
-			
+
 		this.scopeStack[this.scopeStack.length-2].collectFreeVariables(this.scope, shouldTrackClosedVariables);
 		this.scopeStack.pop();
 	},
-	
+
 	getErrorMessageForExpectedToken: function(tokKind) {
 		switch(tokKind)
 		{
@@ -166,10 +166,10 @@ jsc.Parser.prototype = {
 			default:
 				return "Internal Error";
 		}
-		
+
 		return "";
 	},
-	
+
 	setError: function(tokKindOrMessage) {
 		var msg = null;
 
@@ -185,7 +185,7 @@ jsc.Parser.prototype = {
 		else
 		{
 			msg = jsc.Token.getName(tokKindOrMessage);
-			
+
 			if(msg.length)
 				msg = "Expected token: " + msg;
 			else
@@ -199,11 +199,11 @@ jsc.Parser.prototype = {
 
 		this.setErrorImpl(msg);
 	},
-	
+
 	setErrorImpl: function(message) {
 		this.state.error = message;
 	},
-	
+
 	clearError: function() {
 		this.state.error = null;
 	},
@@ -218,97 +218,98 @@ jsc.Parser.prototype = {
 		if(!utils.isStringNullOrEmpty(this.state.error))
 			throw new Error(this.state.error);
 	},
-	
+
 	debugLog: function(msg /*, ... */) {
 		if(this.debugMode)
 			console.log(utils.format.apply(null, arguments));
+	}
+});
+
+
+jsc.ParserScope = Object.define({
+	initialize: function(isFunction, inStrictMode) {
+		this.labels = [];
+		this.declaredVariables = null;
+		this.usedVariables = null;
+		this.closedVariables = null;
+		this.writtenVariables = null;
+		this.shadowsArguments = false;
+		this.usesEval = false;
+		this.needsFullActivation = false;
+		this.allowsNewDeclarations = true;
+		this.strictMode = inStrictMode;
+		this.isFunction = isFunction;
+		this.isFunctionBoundary = false;
+		this.doesFunctionReturn = false;
+		this.hasValidStrictMode = true;
+		this.loopDepth = 0;
+		this.switchDepth = 0;
 	},
-};
 
-jsc.ParserScope = function(isFunction, inStrictMode) {
-	this.labels = [];
-	this.declaredVariables = null;
-	this.usedVariables = null;
-	this.closedVariables = null;
-	this.writtenVariables = null;
-	this.shadowsArguments = false;
-	this.usesEval = false;
-	this.needsFullActivation = false;
-	this.allowsNewDeclarations = true;
-	this.strictMode = inStrictMode;
-	this.isFunction = isFunction;
-	this.isFunctionBoundary = false;
-	this.doesFunctionReturn = false;
-	this.hasValidStrictMode = true;
-	this.loopDepth = 0;
-	this.switchDepth = 0;
-};
-
-jsc.ParserScope.prototype = {
 	get isInLoop() {
 		return (this.loopDepth > 0);
 	},
-	
+
 	get canBreak() {
 		return (this.loopDepth > 0 || this.switchDepth > 0);
 	},
-	
+
 	get canContinue() {
 		return (this.loopDepth > 0);
 	},
-	
+
 	collectFreeVariables: function(nestedScope, shouldTrackClosedVariables) {
 		// TODO
 	},
-	
+
 	beginSwitch: function() {
 		this.switchDepth++;
 	},
-	
+
 	endSwitch: function() {
 		this.switchDepth--;
 	},
-	
+
 	beginLoop: function() {
 		this.loopDepth++;
 	},
-	
+
 	endLoop: function() {
 		this.loopDepth--;
 	},
-	
+
 	enterFunction: function() {
 		this.isFunction = true;
 		this.isFunctionBoundary = true;
 	},
-	
+
 	pushLabel: function(label, isLoop) {
 		this.labels.push({
 			id: label,
 			isLoop: isLoop
 		});
 	},
-	
+
 	popLabel: function() {
 		if(!this.labels.length)
 			throw new Error("Cannot pop label. There are no labels on the stack.");
-			
+
 		this.labels.pop();
 	},
-	
+
 	findLabel: function(label) {
 		if(!this.labels.length)
 			return null;
-			
+
 		for(var i = this.labels.length; i > 0; i--)
 		{
 			if(this.labels[i-1].id === label)
 				return this.labels[i-1];
 		}
-		
+
 		return null;
 	}
-};
+});
 
 (function() {
 	jsc.Parser.Mode = utils.createEnum(1, ["PROGRAM", "FUNCTION"]);
