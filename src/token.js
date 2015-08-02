@@ -1,36 +1,40 @@
-var jsc = jsc || {};
+var jsc = require("./jsc");
 
-jsc.Token = function() {
-	this.kind = jsc.Token.Kind.UNKNOWN;
-	this.begin = 0;
-	this.end = 0;
-	this.line = 0;
-	this.value = null;
-}
-
-jsc.Token.getName = function(kind) {
-	var kinds = jsc.Token.Kind;
-	var i = 0;
-	
-	for(var k in kinds)
-	{
-		if(!kinds.hasOwnProperty(k))
-			continue;
-			
-		if(kinds[k] === kind)
-			return jsc.Token.KindNames[i];
-
-		i++;
+jsc.Token = Object.define({
+	initialize: function() {
+		this.kind = jsc.Token.Kind.UNKNOWN;
+		this.begin = 0;
+		this.end = 0;
+		this.line = 0;
+		this.value = null;
 	}
+});
 
-	return "INVALID";
-};
+Object.extend(jsc.Token, {
+	IN_PRECEDENCE: 0x04,
+	PRECEDENCE: 0x08,
+	PRECEDENCE_MASK: 0x0F << jsc.Token.PRECEDENCE,
+	UNARY: 0x40,
+	KEYWORD: 0x80,
+	
+	getName: function(kind) {
+		var kinds = jsc.Token.Kind;
+		var i = 0;
+		
+		for(var k in kinds)
+		{
+			if(!kinds.hasOwnProperty(k))
+				continue;
+				
+			if(kinds[k] === kind)
+				return jsc.Token.KindNames[i];
 
-jsc.Token.IN_PRECEDENCE				= 0x04;
-jsc.Token.PRECEDENCE				= 0x08;
-jsc.Token.PRECEDENCE_MASK			= 0x0F << jsc.Token.PRECEDENCE;
-jsc.Token.UNARY 					= 0x40;
-jsc.Token.KEYWORD 					= 0x80;
+			i++;
+		}
+
+		return "INVALID";
+	}
+});
 
 (function() {
 	var keyword = jsc.Token.KEYWORD;
@@ -40,7 +44,7 @@ jsc.Token.KEYWORD 					= 0x80;
 	var punctuator = 0;
 	
 	// the token kind names must be kept in sync with the token kinds
-	jsc.Token.KindNames = [
+	var kindNames = [
 		"", "null", "true", "false", "break", "case", "default", "for", "new", "var", "const", "continue", "function",
 		"", "if", "this", "do", "while", "switch", "with", "", "", "throw", "try", "catch", "finally",
 		"debugger", "else", "{", "}", "(", ")", "[", "]", ",", "?", ";", ":", ".", "=", "+=", "-=", "*=", "/=", "<<=", ">>=", ">>>=",
@@ -48,7 +52,7 @@ jsc.Token.KEYWORD 					= 0x80;
 		"in", "<<", ">>", ">>>", "+", "-", "*", "/", "%", "++", "++", "--", "--", "!", "~", "typeof", "void", "delete"
 	];
 	
-	jsc.Token.Kind = Object.freeze({
+	var kinds = Object.freeze({
 		UNKNOWN			: -1,
 		
 		// keywords
@@ -149,9 +153,7 @@ jsc.Token.KEYWORD 					= 0x80;
 		DELETE			: 8 + unary | keyword,
 	});
 	
-	var kinds = jsc.Token.Kind;
-	
-	jsc.Token.Identifiers = Object.freeze({
+	var identifiers = Object.freeze({
 		"null"		 : kinds.NULL,
 		"true"		 : kinds.TRUE,
 		"false"		 : kinds.FALSE,
@@ -199,6 +201,12 @@ jsc.Token.KEYWORD 					= 0x80;
 		"yield"		 : kinds.RESERVED_STRICT,
 	});
 	
-})()
+	Object.extend(jsc.Token, {
+		KindNames: kindNames,
+		Kind: kinds,
+		Identifiers: identifiers
+	});
+	
+})();
 
 module.exports = jsc.Token;

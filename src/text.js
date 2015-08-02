@@ -1,14 +1,12 @@
-var utils = require("./utils");
+var jsc = require("./jsc");
+require("./utils");
 
-//
-// TextSpan
-//
-jsc.TextSpan = function(begin, length) {
-	this.begin = begin;
-	this.length = length;
-};
-
-jsc.TextSpan.prototype = {
+jsc.TextSpan = Object.define({
+	initialize: function(begin, length) {
+		this.begin = begin;
+		this.length = length;
+	},
+	
 	get end() {
 		return this.begin + this.length;
 	},
@@ -18,102 +16,100 @@ jsc.TextSpan.prototype = {
 	},
 	
 	toString: function() {
-		return utils.format("[%d..%d]", this.begin, this.end);
+		return jsc.Utils.format("[%d..%d]", this.begin, this.end);
 	}
-};
+});
 
-jsc.TextSpan.fromRange = function(begin, end) {
-	return new jsc.TextSpan(begin, end - begin);
-};
+Object.extend(jsc.TextSpan, {
+	fromRange: function(begin, end) {
+		return new jsc.TextSpan(begin, end - begin);
+	}
+});
 
 
-//
-// TextPosition
-//
-jsc.TextPosition = function(line, character) {
-	this.line = line;
-	this.character = character;
-};
-
-jsc.TextPosition.prototype = {	
+jsc.TextPosition = Object.define({
+	initialize: function(line, character) {
+		this.line = line;
+		this.character = character;	
+	},
+	
 	toString: function() {
-		return utils.format("%d,%d", this.line, this.character);
+		return jsc.Utils.format("%d,%d", this.line, this.character);
 	}
-};
+});
 
-jsc.TextPosition.Zero = new jsc.TextPosition(0, 0);
+Object.extend(jsc.TextPosition, {
+	Zero: new jsc.TextPosition(0, 0)
+});
 
 
-//
-// TextBuffer
-//
-jsc.TextBuffer = function(str, encoding, offset, length) {
-	this.str = str;
-	this.strlen = str.length;
-	this.encoding = utils.isStringNullOrEmpty(encoding) ? jsc.TextBuffer.ENCODING.UTF8 : encoding;
-	this.startIndex = offset ? Math.max((this.strlen + offset) % this.strlen, 0) : 0;
-	this.endIndex = (utils.isInteger(length) ? Math.min(Math.max(length, 0) + this.startIndex, this.strlen) : this.strlen) - 1;
-	this.source = null;
-	this.buffer = null;
-	this.bufferLength = this.strlen;
-	
-	var chStartIndex = this.startIndex;
-	var chEndIndex = this.endIndex;
-	var i;
-	
-	switch(this.encoding)
-	{
-		// UTF-8
-		case jsc.TextBuffer.ENCODING.UTF8:
+jsc.TextBuffer = Object.define({
+	initialize: function(str, encoding, offset, length) {
+		this.str = str;
+		this.strlen = str.length;
+		this.encoding = jsc.Utils.isStringNullOrEmpty(encoding) ? jsc.TextBuffer.ENCODING.UTF8 : encoding;
+		this.startIndex = offset ? Math.max((this.strlen + offset) % this.strlen, 0) : 0;
+		this.endIndex = (jsc.Utils.isInteger(length) ? Math.min(Math.max(length, 0) + this.startIndex, this.strlen) : this.strlen) - 1;
+		this.source = null;
+		this.buffer = null;
+		this.bufferLength = this.strlen;
+		
+		var chStartIndex = this.startIndex;
+		var chEndIndex = this.endIndex;
+		var i;
+		
+		switch(this.encoding)
 		{
-			this.bufferLength = 0;
-			
-			for(i = 0; i < this.strlen; i++)
+			// UTF-8
+			case jsc.TextBuffer.ENCODING.UTF8:
 			{
-				if(i === chStartIndex)
-					this.startIndex = this.bufferLength;
-					
-				this.bufferLength += this.getCharLength(this.str.charCodeAt(i));
+				this.bufferLength = 0;
+				
+				for(i = 0; i < this.strlen; i++)
+				{
+					if(i === chStartIndex)
+						this.startIndex = this.bufferLength;
+						
+					this.bufferLength += this.getCharLength(this.str.charCodeAt(i));
 
-				if(i === chEndIndex)
-					this.endIndex = this.bufferLength;
+					if(i === chEndIndex)
+						this.endIndex = this.bufferLength;
+				}
+				
+				this.buffer = new Uint8Array(this.bufferLength);
+				
+				var chIndex = 0;
+				
+				for(i = 0; i < this.bufferLength; chIndex++)
+					i = this.putChar(this.str.charCodeAt(chIndex), i);
+
+				break;
 			}
-			
-			this.buffer = new Uint8Array(this.bufferLength);
-			
-			var chIndex = 0;
-			
-			for(i = 0; i < this.bufferLength; chIndex++)
-				i = this.putChar(this.str.charCodeAt(chIndex), i);
+			// UTF-16
+			case jsc.TextBuffer.ENCODING.UTF16:
+				this.buffer = new Uint16Array(this.bufferLength);
+				
+				for(i = 0; i < this.bufferLength; i++)
+					this.buffer[i] = this.str.charCodeAt(i);
+				
+				break;
+				
+			// ASCII
+			default:
+				this.buffer = new Uint8Array(this.bufferLength);
+				
+				for(i = 0; i < this.bufferLength; i++)
+					this.buffer[i] = this.str.charCodeAt(i) & 0xFF;
 
-			break;
+				break;
 		}
-		// UTF-16
-		case jsc.TextBuffer.ENCODING.UTF16:
-			this.buffer = new Uint16Array(this.bufferLength);
-			
-			for(i = 0; i < this.bufferLength; i++)
-				this.buffer[i] = this.str.charCodeAt(i);
-			
-			break;
-			
-		// ASCII
-		default:
-			this.buffer = new Uint8Array(this.bufferLength);
-			
-			for(i = 0; i < this.bufferLength; i++)
-				this.buffer[i] = this.str.charCodeAt(i) & 0xFF;
+		
+		this.source = (this.startIndex > 0 || this.endIndex < this.buffer.length - 1) ? this.buffer.subarray(this.startIndex, this.endIndex) : this.buffer;
 
-			break;
-	}
+		// make this buffer immutable
+		Object.freeze(this);
+	},
 	
-	this.source = (this.startIndex > 0 || this.endIndex < this.buffer.length - 1) ? this.buffer.subarray(this.startIndex, this.endIndex) : this.buffer;
-
-	// make this buffer immutable
-	Object.freeze(this);
-};
-
-jsc.TextBuffer.prototype = {
 	get length() {
 		return this.source.length;
 	},
@@ -160,7 +156,7 @@ jsc.TextBuffer.prototype = {
 	
 	putChar: function(ch, index) {
 		var nextIndex = index;
-		var code = utils.isString(ch) ? ch.charCodeAt(0) : ch;
+		var code = jsc.Utils.isString(ch) ? ch.charCodeAt(0) : ch;
 		
 		switch(this.encoding)
 		{
@@ -244,8 +240,8 @@ jsc.TextBuffer.prototype = {
 	},
 	
 	toString: function(offset, len) {
-		offset = utils.valueOrDefault(offset, 0);
-		len = utils.valueOrDefault(len, this.source.length);
+		offset = jsc.Utils.valueOrDefault(offset, 0);
+		len = jsc.Utils.valueOrDefault(len, this.source.length);
 		
 		if(this.encoding === jsc.TextBuffer.ENCODING.UTF8 || this.encoding === jsc.TextBuffer.ENCODING.UTF16)
 		{
@@ -265,18 +261,18 @@ jsc.TextBuffer.prototype = {
 
 		return String.fromCharCode.apply(null, this.source.subarray(offset, offset+len));
 	}
-};
-
-jsc.TextBuffer.ENCODING = {
-	ASCII: "ASCII",
-	UTF8: "UTF-8",
-	UTF16: "UTF-16"
-};
+});
 
 
-//
-// TextUtils
-//
+Object.extend(jsc.TextBuffer, {
+	ENCODING: {
+		ASCII: "ASCII",
+		UTF8: "UTF-8",
+		UTF16: "UTF-16"
+	}
+});
+
+
 jsc.TextUtils = {
 	isWhitespace: function(ch) {
 		return (ch === '\u0020' || ch === '\u0009' || ch === '\u000B' || ch === '\u000C' || ch === '\u00A0');
@@ -316,18 +312,6 @@ jsc.TextUtils = {
 	
 	isUpper: function(ch) {
 		return (ch >= '\u0041' && ch <= '\u005A');
-	},
-	
-	toHex: function(a, b) {
-		return ((jsc.TextUtils.toHexValue(a) << 4) | jsc.TextUtils.toHexValue(b));
-	},
-	
-	toHexValue: function(code) {
-		return (code < 0x41 ? code - 0x30 : (code - 0x41 + 10) & 0x0F);
-	},
-	
-	toUnicode: function(a, b, c, d) {
-		return ((jsc.TextUtils.toHex(a, b) << 8) | jsc.TextUtils.toHex(c, d));
 	},
 	
 	getEscapeChar: function(ch) {

@@ -1,16 +1,12 @@
 var jsc = require("./jsc");
-var token = require("./token");
-var utils = require("./utils");
-var source = require("./source-code");
-var text = require("./text");
 
 jsc.Lexer = Object.define({
 	initialize: function(sourceCode) {
-		if(utils.isNull(sourceCode))
+		if(jsc.Utils.isNull(sourceCode))
 			throw new Error("The sourceCode argument must not be null.");
 
 		this.state = {
-			lastTokenKind: token.Kind.UNKNOWN,
+			lastTokenKind: jsc.Token.Kind.UNKNOWN,
 			lastLineNumber: 0,
 			position: sourceCode.offsetBegin,
 			end: sourceCode.offsetEnd,
@@ -109,7 +105,7 @@ jsc.Lexer = Object.define({
 		{
 			var nextChar = this.peek(this.state.position);
 
-			if(text.TextUtils.isWhitespace(nextChar) || text.TextUtils.isLineTerminator(nextChar))
+			if(jsc.TextUtils.isWhitespace(nextChar) || jsc.TextUtils.isLineTerminator(nextChar))
 			{
 				this.state.position++;
 				continue;
@@ -124,10 +120,10 @@ jsc.Lexer = Object.define({
 
 	// gets whether or not the last known token is a completion keyword
 	get isLastTokenCompletionKeyword() {
-		return (this.state.lastTokenKind === token.Kind.CONTINUE ||
-		this.state.lastTokenKind === token.Kind.BREAK    ||
-		this.state.lastTokenKind === token.Kind.RETURN   ||
-		this.state.lastTokenKind === token.Kind.THROW);
+		return (this.state.lastTokenKind === jsc.Token.Kind.CONTINUE ||
+		this.state.lastTokenKind === jsc.Token.Kind.BREAK    ||
+		this.state.lastTokenKind === jsc.Token.Kind.RETURN   ||
+		this.state.lastTokenKind === jsc.Token.Kind.THROW);
 	},
 
 
@@ -139,7 +135,7 @@ jsc.Lexer = Object.define({
 	},
 
 	nextLine: function() {
-		if(!text.TextUtils.isLineTerminator(this.ch))
+		if(!jsc.TextUtils.isLineTerminator(this.ch))
 			this.throwOnError("Expected a line terminator");
 
 		var prevChar = this.ch;
@@ -153,7 +149,7 @@ jsc.Lexer = Object.define({
 	},
 
 	nextToken: function(tok, inStrictMode) {
-		inStrictMode = utils.valueOrDefault(inStrictMode, false);
+		inStrictMode = jsc.Utils.valueOrDefault(inStrictMode, false);
 
 		this.throwOnError();
 
@@ -162,7 +158,7 @@ jsc.Lexer = Object.define({
 
 		this.state.hasLineTerminator = false;
 
-		var tokKind = token.Kind.ERROR;
+		var tokKind = jsc.Token.Kind.ERROR;
 		var hasError = false;
 		var inSingleLineComment = false;
 		var inNumber = false;
@@ -174,7 +170,7 @@ jsc.Lexer = Object.define({
 				this.skipWhitespace();
 
 				if(this.isEnd)
-					return token.Kind.EOF;
+					return jsc.Token.Kind.EOF;
 
 				tok.begin = this.position;
 
@@ -191,15 +187,15 @@ jsc.Lexer = Object.define({
 							if(this.ch === '=')
 							{
 								this.next();
-								tokKind = token.Kind.STRICT_EQUAL;
+								tokKind = jsc.Token.Kind.STRICT_EQUAL;
 								break loop;
 							}
 
-							tokKind = token.Kind.EQUAL_EQUAL;
+							tokKind = jsc.Token.Kind.EQUAL_EQUAL;
 							break loop;
 						}
 
-						tokKind = token.Kind.EQUAL;
+						tokKind = jsc.Token.Kind.EQUAL;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.LESS:
@@ -221,12 +217,12 @@ jsc.Lexer = Object.define({
 							if(this.ch === '=')
 							{
 								this.next();
-								tokKind = token.Kind.LSHIFT_EQUAL;
+								tokKind = jsc.Token.Kind.LSHIFT_EQUAL;
 								break loop;
 							}
 
 							// '<<'
-							tokKind = token.Kind.LSHIFT;
+							tokKind = jsc.Token.Kind.LSHIFT;
 							break loop;
 						}
 
@@ -234,12 +230,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.LESS_EQUAL;
+							tokKind = jsc.Token.Kind.LESS_EQUAL;
 							break loop;
 						}
 
 						// '<'
-						tokKind = token.Kind.LESS;
+						tokKind = jsc.Token.Kind.LESS;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.GREATER:
@@ -258,12 +254,12 @@ jsc.Lexer = Object.define({
 								if(this.ch === '=')
 								{
 									this.next();
-									tokKind = token.Kind.URSHIFT_EQUAL;
+									tokKind = jsc.Token.Kind.URSHIFT_EQUAL;
 									break loop;
 								}
 
 								// '>>>'
-								tokKind = token.Kind.URSHIFT;
+								tokKind = jsc.Token.Kind.URSHIFT;
 								break loop;
 							}
 
@@ -271,12 +267,12 @@ jsc.Lexer = Object.define({
 							if(this.ch === '=')
 							{
 								this.next();
-								tokKind = token.Kind.RSHIFT_EQUAL;
+								tokKind = jsc.Token.Kind.RSHIFT_EQUAL;
 								break loop;
 							}
 
 							// '>>'
-							tokKind = token.Kind.RSHIFT;
+							tokKind = jsc.Token.Kind.RSHIFT;
 							break loop;
 						}
 
@@ -284,12 +280,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.GREATER_EQUAL;
+							tokKind = jsc.Token.Kind.GREATER_EQUAL;
 							break loop;
 						}
 
 						// '>'
-						tokKind = token.Kind.GREATER;
+						tokKind = jsc.Token.Kind.GREATER;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.EXCLAMATION:
@@ -304,17 +300,17 @@ jsc.Lexer = Object.define({
 							if(this.ch === '=')
 							{
 								this.next();
-								tokKind = token.Kind.STRICT_NOT_EQUAL;
+								tokKind = jsc.Token.Kind.STRICT_NOT_EQUAL;
 								break loop;
 							}
 
 							// '!='
-							tokKind = token.Kind.NOT_EQUAL;
+							tokKind = jsc.Token.Kind.NOT_EQUAL;
 							break loop;
 						}
 
 						// '!'
-						tokKind = token.Kind.EXCLAMATION;
+						tokKind = jsc.Token.Kind.EXCLAMATION;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.SLASH:
@@ -343,11 +339,11 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.DIV_EQUAL;
+							tokKind = jsc.Token.Kind.DIV_EQUAL;
 							break loop;
 						}
 
-						tokKind = token.Kind.DIV;
+						tokKind = jsc.Token.Kind.DIV;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.ADD:
@@ -358,7 +354,7 @@ jsc.Lexer = Object.define({
 						if(this.ch === '+')
 						{
 							this.next();
-							tokKind = (!this.hasLineTerminator ? token.Kind.PLUSPLUS : token.Kind.PLUSPLUS_AUTO);
+							tokKind = (!this.hasLineTerminator ? jsc.Token.Kind.PLUSPLUS : jsc.Token.Kind.PLUSPLUS_AUTO);
 							break loop;
 						}
 
@@ -366,12 +362,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.PLUS_EQUAL;
+							tokKind = jsc.Token.Kind.PLUS_EQUAL;
 							break loop;
 						}
 
 						// '+'
-						tokKind = token.Kind.PLUS;
+						tokKind = jsc.Token.Kind.PLUS;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.SUBTRACT:
@@ -391,7 +387,7 @@ jsc.Lexer = Object.define({
 							}
 
 							// '--'
-							tokKind = (!this.hasLineTerminator ? token.Kind.MINUSMINUS : token.Kind.MINUSMINUS_AUTO);
+							tokKind = (!this.hasLineTerminator ? jsc.Token.Kind.MINUSMINUS : jsc.Token.Kind.MINUSMINUS_AUTO);
 							break loop;
 						}
 
@@ -399,12 +395,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.MINUS_EQUAL;
+							tokKind = jsc.Token.Kind.MINUS_EQUAL;
 							break loop;
 						}
 
 						// '-'
-						tokKind = token.Kind.MINUS;
+						tokKind = jsc.Token.Kind.MINUS;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.MULTIPLY:
@@ -415,12 +411,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.MULT_EQUAL;
+							tokKind = jsc.Token.Kind.MULT_EQUAL;
 							break loop;
 						}
 
 						// '*'
-						tokKind = token.Kind.MULT;
+						tokKind = jsc.Token.Kind.MULT;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.AND:
@@ -431,7 +427,7 @@ jsc.Lexer = Object.define({
 						if(this.ch === '&')
 						{
 							this.next();
-							tokKind = token.Kind.AND;
+							tokKind = jsc.Token.Kind.AND;
 							break loop;
 						}
 
@@ -439,12 +435,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.AND_EQUAL;
+							tokKind = jsc.Token.Kind.AND_EQUAL;
 							break loop;
 						}
 
 						// '&'
-						tokKind = token.Kind.BITWISE_AND;
+						tokKind = jsc.Token.Kind.BITWISE_AND;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.OR:
@@ -455,7 +451,7 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.OR_EQUAL;
+							tokKind = jsc.Token.Kind.OR_EQUAL;
 							break loop;
 						}
 
@@ -463,12 +459,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '|')
 						{
 							this.next();
-							tokKind = token.Kind.OR;
+							tokKind = jsc.Token.Kind.OR;
 							break loop;
 						}
 
 						// '|'
-						tokKind = token.Kind.BITWISE_OR;
+						tokKind = jsc.Token.Kind.BITWISE_OR;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.XOR:
@@ -479,12 +475,12 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.XOR_EQUAL;
+							tokKind = jsc.Token.Kind.XOR_EQUAL;
 							break loop;
 						}
 
 						// '^'
-						tokKind = token.Kind.BITWISE_XOR;
+						tokKind = jsc.Token.Kind.BITWISE_XOR;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.MODULO:
@@ -495,51 +491,51 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = token.Kind.MOD_EQUAL;
+							tokKind = jsc.Token.Kind.MOD_EQUAL;
 							break loop;
 						}
 
 						// '%'
-						tokKind = token.Kind.MOD;
+						tokKind = jsc.Token.Kind.MOD;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.COMMA:
 					{
 						this.next();
-						tokKind = token.Kind.COMMA;
+						tokKind = jsc.Token.Kind.COMMA;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.COLON:
 					{
 						this.next();
-						tokKind = token.Kind.COLON;
+						tokKind = jsc.Token.Kind.COLON;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.SEMICOLON:
 					{
 						this.next();
-						tokKind = token.Kind.SEMICOLON;
+						tokKind = jsc.Token.Kind.SEMICOLON;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.QUESTION:
 					{
 						this.next();
-						tokKind = token.Kind.QUESTION;
+						tokKind = jsc.Token.Kind.QUESTION;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.TILDE:
 					{
 						this.next();
-						tokKind = token.Kind.TILDE;
+						tokKind = jsc.Token.Kind.TILDE;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.DOT:
 					{
 						this.next();
 
-						if(!text.TextUtils.isDigit(this.ch))
+						if(!jsc.TextUtils.isDigit(this.ch))
 						{
-							tokKind = token.Kind.DOT;
+							tokKind = jsc.Token.Kind.DOT;
 							break loop;
 						}
 
@@ -555,19 +551,19 @@ jsc.Lexer = Object.define({
 						}
 
 						this.next();
-						tokKind = token.Kind.STRING;
+						tokKind = jsc.Token.Kind.STRING;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.OPEN_PAREN:
 					{
-						tokKind = token.Kind.OPEN_PAREN;
+						tokKind = jsc.Token.Kind.OPEN_PAREN;
 						this.next();
 
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.CLOSE_PAREN:
 					{
-						tokKind = token.Kind.CLOSE_PAREN;
+						tokKind = jsc.Token.Kind.CLOSE_PAREN;
 						this.next();
 
 						break loop;
@@ -575,18 +571,18 @@ jsc.Lexer = Object.define({
 					case jsc.Lexer.CharacterKind.OPEN_BRACKET:
 					{
 						this.next();
-						tokKind = token.Kind.OPEN_BRACKET;
+						tokKind = jsc.Token.Kind.OPEN_BRACKET;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.CLOSE_BRACKET:
 					{
 						this.next();
-						tokKind = token.Kind.CLOSE_BRACKET;
+						tokKind = jsc.Token.Kind.CLOSE_BRACKET;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.OPEN_BRACE:
 					{
-						tokKind = token.Kind.OPEN_BRACE;
+						tokKind = jsc.Token.Kind.OPEN_BRACE;
 						tok.value = this.position;
 						this.next();
 
@@ -594,7 +590,7 @@ jsc.Lexer = Object.define({
 					}
 					case jsc.Lexer.CharacterKind.CLOSE_BRACE:
 					{
-						tokKind = token.Kind.CLOSE_BRACE;
+						tokKind = jsc.Token.Kind.CLOSE_BRACE;
 						tok.value = this.position;
 						this.next();
 
@@ -604,10 +600,10 @@ jsc.Lexer = Object.define({
 					{
 						this.next();
 
-						if((this.ch === 'x' || this.ch === 'X') && text.TextUtils.isHexDigit(this.peek(1)))
+						if((this.ch === 'x' || this.ch === 'X') && jsc.TextUtils.isHexDigit(this.peek(1)))
 						{
 							this.parseHex(tok);
-							tokKind = token.Kind.NUMBER;
+							tokKind = jsc.Token.Kind.NUMBER;
 							validateNumericLiteral = true;
 							break;
 						}
@@ -615,7 +611,7 @@ jsc.Lexer = Object.define({
 						{
 							this.appendChar('0');
 
-							if(text.TextUtils.isOctalDigit(this.ch))
+							if(jsc.TextUtils.isOctalDigit(this.ch))
 							{
 								if(this.parseOctal(tok))
 								{
@@ -626,7 +622,7 @@ jsc.Lexer = Object.define({
 										break;
 									}
 
-									tokKind = token.Kind.NUMBER;
+									tokKind = jsc.Token.Kind.NUMBER;
 									validateNumericLiteral = true;
 									break;
 								}
@@ -638,15 +634,15 @@ jsc.Lexer = Object.define({
 					{
 						inNumber = true;
 
-						if(tokKind !== token.Kind.NUMBER)
-							tokKind = token.Kind.NUMBER;
+						if(tokKind !== jsc.Token.Kind.NUMBER)
+							tokKind = jsc.Token.Kind.NUMBER;
 
 						break;
 					}
 					case jsc.Lexer.CharacterKind.LINE_TERMINATOR:
 					{
-						if(!text.TextUtils.isLineTerminator(this.ch))
-							this.throwOnError(utils.format("Expected a line terminator. Actual character found: '%s'.", this.ch));
+						if(!jsc.TextUtils.isLineTerminator(this.ch))
+							this.throwOnError(jsc.Utils.format("Expected a line terminator. Actual character found: '%s'.", this.ch));
 
 						this.nextLine();
 
@@ -657,7 +653,7 @@ jsc.Lexer = Object.define({
 					case jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN:
 					{
 						if(!jsc.Lexer.isIdentifierBegin(this.chCode))
-							this.throwOnError(utils.format("Expected an identifier begin character. Actual character found: '%s'.", this.ch));
+							this.throwOnError(jsc.Utils.format("Expected an identifier begin character. Actual character found: '%s'.", this.ch));
 					}
 					case jsc.Lexer.CharacterKind.BACKSLASH:
 					{
@@ -705,7 +701,7 @@ jsc.Lexer = Object.define({
 								}
 
 								tok.value = parseFloat(this.chBuffer.join(""));
-								tokKind = token.Kind.NUMBER;
+								tokKind = jsc.Token.Kind.NUMBER;
 							}
 						}
 					}
@@ -734,10 +730,10 @@ jsc.Lexer = Object.define({
 
 				if(inSingleLineComment)
 				{
-					while(!text.TextUtils.isLineTerminator(this.ch))
+					while(!jsc.TextUtils.isLineTerminator(this.ch))
 					{
 						if(this.isEnd)
-							return token.Kind.EOF;
+							return jsc.Token.Kind.EOF;
 
 						this.next();
 					}
@@ -753,7 +749,7 @@ jsc.Lexer = Object.define({
 						continue;
 					}
 
-					tokKind = token.Kind.SEMICOLON;
+					tokKind = jsc.Token.Kind.SEMICOLON;
 					break;
 				}
 			}
@@ -762,7 +758,7 @@ jsc.Lexer = Object.define({
 		tok.end = this.position;
 
 		if(hasError)
-			return token.Kind.ERROR;
+			return jsc.Token.Kind.ERROR;
 
 		if(!inSingleLineComment)
 			this.state.isLineBegin = false;
@@ -773,7 +769,7 @@ jsc.Lexer = Object.define({
 		return tokKind;
 	},
 
-	nextIdentifer: function(tok, inStrictMode) {
+	nextIdentifier: function(tok, inStrictMode) {
 		var startOffset = this.position;
 
 		if(this.position >= this.state.end)
@@ -784,14 +780,14 @@ jsc.Lexer = Object.define({
 			return this.nextToken(tok, inStrictMode);
 		}
 
-		if(!text.TextUtils.isAlpha(this.getChar()))
+		if(!jsc.TextUtils.isAlpha(this.getChar()))
 			return this.nextToken(tok, inStrictMode);
 
 		++this.position;
 
 		while(this.position < this.state.end)
 		{
-			if(!text.TextUtils.isAlphaNumeric(this.getChar()))
+			if(!jsc.TextUtils.isAlphaNumeric(this.getChar()))
 				break;
 
 			++this.position;
@@ -807,7 +803,7 @@ jsc.Lexer = Object.define({
 			var currentChar = this.getChar();
 			var currentCharCode = this.getCharCode();
 
-			if(!text.TextUtils.isAscii(currentChar) || currentChar === '\\' || currentChar === '_' || currentChar === '$')
+			if(!jsc.TextUtils.isAscii(currentChar) || currentChar === '\\' || currentChar === '_' || currentChar === '$')
 				return this.nextToken(tok, inStrictMode);
 
 			this.ch = currentChar;
@@ -822,13 +818,13 @@ jsc.Lexer = Object.define({
 		tok.value = this.chBuffer.join("");
 
 		this.chBuffer = [];
-		this.state.lastTokenKind = token.Kind.IDENTIFIER;
+		this.state.lastTokenKind = jsc.Token.Kind.IDENTIFIER;
 
 		return this.state.lastTokenKind;
 	},
 
 	scanRegEx: function(patternPrefix) {
-		patternPrefix = utils.valueOrDefault(patternPrefix, '\0');
+		patternPrefix = jsc.Utils.valueOrDefault(patternPrefix, '\0');
 
 		if(this.chBuffer.length)
 			this.throwOnError("Character buffer has not been emptied.");
@@ -840,7 +836,7 @@ jsc.Lexer = Object.define({
 
 		if(patternPrefix !== '\0')
 		{
-			if(text.TextUtils.isLineTerminator(patternPrefix))
+			if(jsc.TextUtils.isLineTerminator(patternPrefix))
 				this.throwOnError("The regular expression patternPrefix cannot be a line terminator.");
 
 			if(patternPrefix === '/')
@@ -854,7 +850,7 @@ jsc.Lexer = Object.define({
 
 		while(true)
 		{
-			if(text.TextUtils.isLineTerminator(this.ch) || this.isEnd)
+			if(jsc.TextUtils.isLineTerminator(this.ch) || this.isEnd)
 			{
 				this.chBuffer = [];
 				return null;
@@ -914,7 +910,7 @@ jsc.Lexer = Object.define({
 
 		while(true)
 		{
-			if(text.TextUtils.isLineTerminator(this.ch) || this.isEnd)
+			if(jsc.TextUtils.isLineTerminator(this.ch) || this.isEnd)
 				return false;
 
 			var prevChar = this.ch;
@@ -951,7 +947,7 @@ jsc.Lexer = Object.define({
 	},
 
 	skipWhitespace: function() {
-		while(text.TextUtils.isWhitespace(this.ch))
+		while(jsc.TextUtils.isWhitespace(this.ch))
 			this.next();
 	},
 
@@ -962,12 +958,12 @@ jsc.Lexer = Object.define({
 		{
 			var keyword = this.parseKeyword(tok);
 
-			if(keyword !== token.Kind.IDENTIFIER)
+			if(keyword !== jsc.Token.Kind.IDENTIFIER)
 			{
-				if(utils.isNull(tok.value))
+				if(jsc.Utils.isNull(tok.value))
 					this.throwOnError("The token has no identifier value.");
 
-				return (keyword === token.Kind.RESERVED_STRICT && !inStrictMode ? token.Kind.IDENTIFIER : keyword);
+				return (keyword === jsc.Token.Kind.RESERVED_STRICT && !inStrictMode ? jsc.Token.Kind.IDENTIFIER : keyword);
 			}
 		}
 
@@ -988,13 +984,13 @@ jsc.Lexer = Object.define({
 		{
 			var identifierTokenKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
 
-			if(identifierTokenKind === token.Kind.UNKNOWN)
-				return token.Kind.IDENTIFIER;
+			if(identifierTokenKind === jsc.Token.Kind.UNKNOWN)
+				return jsc.Token.Kind.IDENTIFIER;
 
-			return (identifierTokenKind !== token.Kind.RESERVED_STRICT || inStrictMode ? identifierTokenKind : token.Kind.IDENTIFIER);
+			return (identifierTokenKind !== jsc.Token.Kind.RESERVED_STRICT || inStrictMode ? identifierTokenKind : jsc.Token.Kind.IDENTIFIER);
 		}
 
-		return token.Kind.IDENTIFIER;
+		return jsc.Token.Kind.IDENTIFIER;
 	},
 
 	parseIdentifierOrEscape: function(tok, inStrictMode) {
@@ -1030,17 +1026,17 @@ jsc.Lexer = Object.define({
 			this.next();
 
 			if(this.ch !== 'u')
-				return token.Kind.ERROR;
+				return jsc.Token.Kind.ERROR;
 
 			this.next();
 
 			var unicodeCharCode = this.parseUnicodeHexCode();
 
 			if(unicodeCharCode === null)
-				return token.Kind.ERROR;
+				return jsc.Token.Kind.ERROR;
 
 			if(this.chBuffer.length ? !jsc.Lexer.isIdentifierPart(unicodeCharCode) : !jsc.Lexer.isIdentifierBegin(unicodeCharCode))
-				return token.Kind.ERROR;
+				return jsc.Token.Kind.ERROR;
 
 			this.appendChar(String.fromCharCode(unicodeCharCode));
 
@@ -1080,18 +1076,18 @@ jsc.Lexer = Object.define({
 			{
 				var tokKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
 
-				if(tokKind === token.Kind.UNKNOWN)
-					return token.Kind.IDENTIFIER;
+				if(tokKind === jsc.Token.Kind.UNKNOWN)
+					return jsc.Token.Kind.IDENTIFIER;
 
-				return (tokKind !== token.Kind.RESERVED_STRICT || inStrictMode ? tokKind : token.Kind.IDENTIFIER);
+				return (tokKind !== jsc.Token.Kind.RESERVED_STRICT || inStrictMode ? tokKind : jsc.Token.Kind.IDENTIFIER);
 			}
 
-			return token.Kind.IDENTIFIER
+			return jsc.Token.Kind.IDENTIFIER
 		}
 
 		this.chBuffer = [];
 
-		return token.Kind.IDENTIFIER;
+		return jsc.Token.Kind.IDENTIFIER;
 	},
 
 	parseKeyword: function(tok) {
@@ -1100,9 +1096,9 @@ jsc.Lexer = Object.define({
 
 		var c = this.getChar();
 
-		for(var keyword in token.Identifiers)
+		for(var keyword in jsc.Token.Identifiers)
 		{
-			if(!token.Identifiers.hasOwnProperty(keyword))
+			if(!jsc.Token.Identifiers.hasOwnProperty(keyword))
 				continue;
 
 			if(c === keyword[0] && this.compareString(keyword))
@@ -1111,12 +1107,12 @@ jsc.Lexer = Object.define({
 				{
 					this.seek(keyword.length);
 					tok.value = keyword;
-					return token.Identifiers[keyword];
+					return jsc.Token.Identifiers[keyword];
 				}
 			}
 		}
 
-		return token.Kind.IDENTIFIER;
+		return jsc.Token.Kind.IDENTIFIER;
 	},
 
 	parseString: function(tok, inStrictMode) {
@@ -1135,20 +1131,20 @@ jsc.Lexer = Object.define({
 
 				this.next();
 
-				var escapeChar = text.TextUtils.getEscapeChar(this.ch);
+				var escapeChar = jsc.TextUtils.getEscapeChar(this.ch);
 
 				if(escapeChar)
 				{
 					this.appendChar(escapeChar);
 					this.next();
 				}
-				else if(text.TextUtils.isLineTerminator(this.ch))
+				else if(jsc.TextUtils.isLineTerminator(this.ch))
 					this.nextLine();
 				else if(this.ch === 'x')
 				{
 					this.next();
 
-					if(!text.TextUtils.isHexDigit(this.ch) || !text.TextUtils.isHexDigit(this.peek(1)))
+					if(!jsc.TextUtils.isHexDigit(this.ch) || !jsc.TextUtils.isHexDigit(this.peek(1)))
 					{
 						this.setError("\\x can only be followed by a hex character sequence.");
 						return false;
@@ -1173,13 +1169,13 @@ jsc.Lexer = Object.define({
 						return false;
 					}
 				}
-				else if(inStrictMode && text.TextUtils.isDigit(this.ch))
+				else if(inStrictMode && jsc.TextUtils.isDigit(this.ch))
 				{
 					var prevChar = this.ch;
 
 					this.next();
 
-					if(prevChar !== '0' || text.TextUtils.isDigit(this.ch))
+					if(prevChar !== '0' || jsc.TextUtils.isDigit(this.ch))
 					{
 						this.setError("The only valid numeric escape in strict mode is '\\0'.");
 						return false;
@@ -1187,13 +1183,13 @@ jsc.Lexer = Object.define({
 
 					this.appendChar('\0');
 				}
-				else if(!inStrictMode && text.TextUtils.isOctalDigit(this.ch))
+				else if(!inStrictMode && jsc.TextUtils.isOctalDigit(this.ch))
 				{
 					var octalChars = [];
 
 					for(var i = 0; i < 3; i++)
 					{
-						if(!text.TextUtils.isOctalDigit(this.ch))
+						if(!jsc.TextUtils.isOctalDigit(this.ch))
 							break;
 
 						octalChars[i] = this.ch;
@@ -1217,7 +1213,7 @@ jsc.Lexer = Object.define({
 				continue;
 			}
 
-			if(this.isEnd || text.TextUtils.isLineTerminator(this.ch))
+			if(this.isEnd || jsc.TextUtils.isLineTerminator(this.ch))
 			{
 				this.setError("Unexpected end of file.");
 				return false;
@@ -1252,7 +1248,7 @@ jsc.Lexer = Object.define({
 			if(this.isEnd)
 				return false;
 
-			if(!text.TextUtils.isLineTerminator(this.ch))
+			if(!jsc.TextUtils.isLineTerminator(this.ch))
 				this.next();
 			else
 			{
@@ -1277,7 +1273,7 @@ jsc.Lexer = Object.define({
 
 				this.next();
 			}
-			while(text.TextUtils.isDigit(this.ch) && maxDigits >= 0);
+			while(jsc.TextUtils.isDigit(this.ch) && maxDigits >= 0);
 
 			if(maxDigits >= 0 && this.ch !== '.' && this.ch !== 'e' && this.ch !== 'E')
 			{
@@ -1289,7 +1285,7 @@ jsc.Lexer = Object.define({
 				this.appendChar(digits[i]);
 		}
 
-		while(text.TextUtils.isDigit(this.ch))
+		while(jsc.TextUtils.isDigit(this.ch))
 		{
 			this.appendChar(this.ch);
 			this.next();
@@ -1301,7 +1297,7 @@ jsc.Lexer = Object.define({
 	parseHex: function(tok) {
 		this.next();
 
-		while(text.TextUtils.isHexDigit(this.ch))
+		while(jsc.TextUtils.isHexDigit(this.ch))
 		{
 			this.appendChar(this.ch);
 			this.next();
@@ -1317,7 +1313,7 @@ jsc.Lexer = Object.define({
 		var c = this.peek(2);
 		var d = this.peek(3);
 
-		if(!text.TextUtils.isHexDigit(a) || !text.TextUtils.isHexDigit(b) || !text.TextUtils.isHexDigit(c) || !text.TextUtils.isHexDigit(d))
+		if(!jsc.TextUtils.isHexDigit(a) || !jsc.TextUtils.isHexDigit(b) || !jsc.TextUtils.isHexDigit(c) || !jsc.TextUtils.isHexDigit(d))
 			return null;
 
 		this.seek(4);
@@ -1335,7 +1331,7 @@ jsc.Lexer = Object.define({
 	},
 
 	parseOctal: function(tok) {
-		while(text.TextUtils.isOctalDigit(this.ch))
+		while(jsc.TextUtils.isOctalDigit(this.ch))
 		{
 			this.appendChar(this.ch);
 			this.next();
@@ -1352,7 +1348,7 @@ jsc.Lexer = Object.define({
 	parseNumberAfterDecimalPoint: function() {
 		this.appendChar('.');
 
-		while(text.TextUtils.isDigit(this.ch))
+		while(jsc.TextUtils.isDigit(this.ch))
 		{
 			this.appendChar(this.ch);
 			this.next();
@@ -1371,7 +1367,7 @@ jsc.Lexer = Object.define({
 			this.next();
 		}
 
-		if(!text.TextUtils.isDigit(this.ch))
+		if(!jsc.TextUtils.isDigit(this.ch))
 			return false;
 
 		do
@@ -1379,7 +1375,7 @@ jsc.Lexer = Object.define({
 			this.appendChar(this.ch);
 			this.next();
 		}
-		while(text.TextUtils.isDigit(this.ch));
+		while(jsc.TextUtils.isDigit(this.ch));
 
 		return true;
 	},
@@ -1451,17 +1447,17 @@ jsc.Lexer = Object.define({
 	throwOnError: function(message) {
 		// set and throw an immediate error when there is a message, otherwise
 		// throw only when an error already exists
-		if(!utils.isStringNullOrEmpty(message))
+		if(!jsc.Utils.isStringNullOrEmpty(message))
 			this.setError(message);
 
 		// only throw when an error exists
-		if(!utils.isStringNullOrEmpty(this.state.error))
+		if(!jsc.Utils.isStringNullOrEmpty(this.state.error))
 			throw new Error(this.state.error);
 	},
 
 	debugLog: function(msg /*, ... */) {
 		if(this.debugMode)
-			console.log(utils.format.apply(null, arguments));
+			console.log(jsc.Utils.format.apply(null, arguments));
 	}
 });
 
@@ -1481,10 +1477,10 @@ Object.extend(jsc.Lexer, {
 	},
 
 	getTokenKindFromIdentifier: function(id) {
-		if(token.Identifiers.hasOwnProperty(id))
-			return token.Identifiers[id];
+		if(jsc.Token.Identifiers.hasOwnProperty(id))
+			return jsc.Token.Identifiers[id];
 
-		return token.Kind.UNKNOWN;
+		return jsc.Token.Kind.UNKNOWN;
 	}
 });
 
@@ -1499,7 +1495,7 @@ Object.extend(jsc.Lexer, {
 		"OR", "XOR", "LESS", "GREATER", "EQUAL", "WHITESPACE", "IDENTIFIER_BEGIN", "ZERO", "NUMBER"
 	];
 	
-	var charKindEnum = utils.createEnum(-1, charKinds);
+	var charKindEnum = jsc.Utils.createEnum(-1, charKinds);
 	
 	jsc.Lexer.CharacterKind = charKindEnum;
 	jsc.Lexer.CharacterKindMap = [
@@ -1763,6 +1759,4 @@ Object.extend(jsc.Lexer, {
 })()
 
 
-module.exports = {
-	Lexer: jsc.Lexer
-}
+module.exports = jsc.Lexer;

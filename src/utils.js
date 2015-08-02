@@ -1,4 +1,5 @@
 var jsc = require("./jsc");
+var klass = require("./class");
 
 jsc.Utils = {
 
@@ -16,12 +17,14 @@ jsc.Utils = {
 		return jsc.Utils.extendObject({}, srcObj);
 	},
 
-	createEnum: function(startValue, keys, destObj) {
+	createEnum: function(startValue, keys, destObj, useFlagValues, useZeroFlag) {
 		var obj = destObj || {};
 
 		keys.forEach(function(k, i) {
+			var value = startValue + i;
+			
 			Object.defineProperty(obj, k, {
-				value: startValue + i,
+				value: value,
 				enumerable: true,
 				configurable: false,
 				writable: false
@@ -30,34 +33,24 @@ jsc.Utils = {
 		
 		return (obj === destObj ? obj : Object.freeze(obj));
 	},
+	
+	createEnumFlags: function(keys, destObj, useZeroFlag) {
+		var obj = destObj || {};
+		
+		useZeroFlag = jsc.Utils.valueOrDefault(useZeroFlag, true);
 
-	createClass: function() {
-		function klass() {
-			this.initialize.apply(this, arguments);
-		}
-
-		var parent = (arguments.length && jsc.Utils.isFunction(arguments[0]) ? arguments[0] : null);
-
-		klass.superclass = parent;
-		klass.subclasses = [];
-
-		if(parent)
-		{
-			klass.prototype = Object.create(parent.prototype);
-			parent.subclasses.push(klass);
-		}
-
-		for(var i = (parent ? 1 : 0); i < arguments.length; i++)
-			Object.extend(klass.prototype, arguments[i]);
-
-		if(!klass.prototype.initialize)
-			klass.prototype.initialize = function() { };
-
-		klass.prototype.constructor = klass;
-		klass.prototype.base = parent && parent.prototype;
-
-
-		return klass;
+		keys.forEach(function(k, i) {
+			var value = (useZeroFlag ? (i === 0 ? 0 : (1 << (i-1))) : 1 << i);
+			
+			Object.defineProperty(obj, k, {
+				value: value,
+				enumerable: true,
+				configurable: false,
+				writable: false
+			})
+		})
+		
+		return (obj === destObj ? obj : Object.freeze(obj));
 	},
 	
 	format: function(str) {
@@ -136,6 +129,13 @@ jsc.Utils = {
 		return (jsc.Utils.isNullOrUndefined(value) ? defaultValue : value);
 	},
 	
+	argumentOrDefault: function(args, index, defaultValue) {
+		if(args && args.length > index)
+			return jsc.Utils.valueOrDefault(args[index], defaultValue);
+			
+		return defaultValue;
+	},
+	
 	toString: function(value) {
 		return Object.prototype.toString.call(value);
 	},
@@ -198,13 +198,83 @@ jsc.Utils = {
 	}
 };
 
+jsc.Utils.HashMap = klass.Create({
+	initialize: function() {
+		this.entries = {};
+		this.count = 0;
+	},
+	
+	get length() {
+		return this.count;
+	},
+	
+	get keys() {
+		return Object.keys(this.entries).map(function(key) {
+			return this.entries[key][0];
+		}, this);
+	},
+	
+	get values() {		
+		return Object.keys(this.entries).map(function(key) {
+			return this.entries[key][1];
+		}, this);
+	},
+	
+	get: function(key) {
+		var p = this.entries[this.hash(key)];
+		
+		return p && p[1];
+	},
+
+	set: function(key, value) {
+		var keyHash = this.hash(key);
+		var isNew = !(keyHash in this.entries);
+
+		this.entries[keyHash] = [key, jsc.Utils.isNull(value) ? null : value];
+		
+		if(!isNew)
+			return false;
+
+		this.count++;
+
+		return true;
+	},
+	
+	remove: function(key) {
+		if(!this.exists(key))
+			return false;
+
+		delete this.entries[this.hash(key)];
+		this.count--;
+
+		return true;
+	},
+	
+	clear: function() {
+		this.count = 0;
+		this.entries = {};
+	},
+	
+	exists: function(key) {
+		return (this.hash(key) in this.entries);
+	},
+	
+	hash: function(key) {
+		if(jsc.Utils.isString(key))
+			return "\u25CF" + key;
+			
+		return key + "";
+	}
+});
+
 (function() {
+	
 	jsc.Utils.extendObject(Object, {
 		extend: jsc.Utils.extendObject,
 		clone: jsc.Utils.cloneObject,
-		define: jsc.Utils.createClass
+		define: klass.Create
 	});
+	
 })();
-
 
 module.exports = jsc.Utils;

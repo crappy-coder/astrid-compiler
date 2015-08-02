@@ -1,25 +1,26 @@
-var utils = require("./utils");
-var text = require("./text");
+var jsc = require("./jsc");
+require("./text");
+require("./utils");
 
-jsc.SourceCode = function(source, url, startLine, startIndex, endIndex) {
-	this.source = utils.valueOrDefault(source, "");
-	this.url = url;
-	this.startLine = Math.max(utils.valueOrDefault(startIndex, 1), 1);
-	this.span = new text.TextSpan(0, this.source.length);
+jsc.SourceCode = Object.define({
+	initialize: function(source, url, startLine, startIndex, endIndex) {
+		this.source = jsc.Utils.valueOrDefault(source, "");
+		this.url = url;
+		this.startLine = Math.max(jsc.Utils.valueOrDefault(startIndex, 1), 1);
+		this.span = new jsc.TextSpan(0, this.source.length);
 
-	if(!utils.isNull(startIndex) && !utils.isNull(endIndex))
-	{
-		this.span = text.TextSpan.fromRange(
-			utils.valueOrDefault(startIndex, 0), utils.valueOrDefault(endIndex, 0));
-	}
+		if(!jsc.Utils.isNull(startIndex) && !jsc.Utils.isNull(endIndex))
+		{
+			this.span = jsc.TextSpan.fromRange(
+				jsc.Utils.valueOrDefault(startIndex, 0), jsc.Utils.valueOrDefault(endIndex, 0));
+		}
+		
+		this.buffer = new jsc.TextBuffer(this.source, jsc.TextBuffer.ENCODING.UTF16, this.span.begin, this.span.length);
+
+		// immutable
+		Object.freeze(this);
+	},
 	
-	this.buffer = new text.TextBuffer(this.source, text.TextBuffer.ENCODING.UTF16, this.span.begin, this.span.length);
-
-	// immutable
-	Object.freeze(this);
-}
-
-jsc.SourceCode.prototype = {
 	get offsetBegin() {
 		return this.span.begin;
 	},
@@ -43,8 +44,6 @@ jsc.SourceCode.prototype = {
 
 		return this.buffer.toString(begin, end - begin);
 	}
-}
+});
 
-module.exports = {
-	SourceCode: jsc.SourceCode
-};
+module.exports = jsc.SourceCode
