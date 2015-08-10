@@ -11,6 +11,8 @@ jsc.Lexer = Object.define({
 			position: sourceCode.offsetBegin,
 			end: sourceCode.offsetEnd,
 			lineNumber: sourceCode.startLine,
+			linePosition: 0,
+			lastLinePosition: 0,
 			isReparsing: false,
 			isLineBegin: true,
 			hasLineTerminator: false,
@@ -55,13 +57,7 @@ jsc.Lexer = Object.define({
 	set lineNumber(value) {
 		this.state.lineNumber = value;
 	},
-
-
-	// gets the last token kind
-	get lastTokenKind() {
-		return this.state.lastTokenKind;
-	},
-
+	
 
 	// gets or sets the last line number
 	get lastLineNumber() {
@@ -70,6 +66,25 @@ jsc.Lexer = Object.define({
 	set lastLineNumber(value) {
 		this.state.lastLineNumber = value;
 	},
+	
+	
+	// gets the start position of the current line
+	get linePosition() {
+		return this.state.linePosition;
+	},
+	
+
+	// gets the start position of the last line
+	get lastLinePosition() {
+		return this.state.lastLinePosition;
+	},
+	
+
+	// gets the last token kind
+	get lastTokenKind() {
+		return this.state.lastTokenKind;
+	},
+
 
 	// gets the last generated error
 	get error() {
@@ -142,9 +157,11 @@ jsc.Lexer = Object.define({
 
 		this.next();
 
-		if(prevChar === '\n' && this.ch === '\r')
+		if(prevChar === '\r' && this.ch === '\n')
 			this.next();
 
+		this.state.lastLinePosition = this.state.linePosition;
+		this.state.linePosition = this.position;
 		this.lineNumber++;
 	},
 
@@ -254,7 +271,7 @@ jsc.Lexer = Object.define({
 								if(this.ch === '=')
 								{
 									this.next();
-									tokKind = jsc.Token.Kind.URSHIFT_EQUAL;
+									tokKind = jsc.Token.Kind.RSHIFT_EQUAL_UNSIGNED;
 									break loop;
 								}
 
@@ -339,7 +356,7 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = jsc.Token.Kind.DIV_EQUAL;
+							tokKind = jsc.Token.Kind.DIVIDE_EQUAL;
 							break loop;
 						}
 
@@ -411,7 +428,7 @@ jsc.Lexer = Object.define({
 						if(this.ch === '=')
 						{
 							this.next();
-							tokKind = jsc.Token.Kind.MULT_EQUAL;
+							tokKind = jsc.Token.Kind.MULTIPLY_EQUAL;
 							break loop;
 						}
 
@@ -737,7 +754,7 @@ jsc.Lexer = Object.define({
 
 						this.next();
 					}
-
+					
 					this.nextLine();
 
 					this.state.isLineBegin = true;

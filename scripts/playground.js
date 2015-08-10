@@ -2,11 +2,14 @@
 
 var jsc = require("../src/jsc");
 var fs = require("fs");
-var file = "../tests/files/additive-operators.js";
+var file = "playground-script.js";
 
 fs.readFile(file, function(err, data) {
 	var sc = new jsc.SourceCode(data.toString(), file);
 	var result = jsc.parse(sc, true);
+	
+	if(!result)
+		return;
 	
 	console.log("");
 	console.log("FEATURES: %d", result.features);

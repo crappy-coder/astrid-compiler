@@ -42,118 +42,133 @@ Object.extend(jsc.Token, {
 	var precedence = jsc.Token.PRECEDENCE;
 	var precedence_shift = jsc.Token.PRECEDENCE + jsc.Token.IN_PRECEDENCE;
 	var punctuator = 0;
+	var identifiers = null;
+	var kinds = {};
+	var kindNames = [];
 	
-	// the token kind names must be kept in sync with the token kinds
-	var kindNames = [
-		"", "null", "true", "false", "break", "case", "default", "for", "new", "var", "const", "continue", "function",
-		"", "if", "this", "do", "while", "switch", "with", "", "", "throw", "try", "catch", "finally",
-		"debugger", "else", "{", "}", "(", ")", "[", "]", ",", "?", ";", ":", ".", "=", "+=", "-=", "*=", "/=", "<<=", ">>=", ">>>=",
-		"&=", "|=", "^=", "%=", "", "", "", "", "", "||", "&&", "|", "^", "&", "==", "!=", "===", "!==", "<", ">", "<=", ">=", "instanceof",
-		"in", "<<", ">>", ">>>", "+", "-", "*", "/", "%", "++", "++", "--", "--", "!", "~", "typeof", "void", "delete"
-	];
-	
-	var kinds = Object.freeze({
-		UNKNOWN			: -1,
+	var kindNameMap = {
+	//--------------------------------------------------------------------------------------------------------------+
+	//  KEY                     |  VALUE                                                        |    PRINTABLE NAME |
+	//--------------------------------------------------------------------------------------------------------------+
+		UNKNOWN					: [-1                                                           ,                ""],
 		
-		// keywords
-		NULL			:  0 + keyword,
-		TRUE			:  1 + keyword,
-		FALSE			:  2 + keyword,
-		BREAK			:  3 + keyword,
-		CASE			:  4 + keyword,
-		DEFAULT			:  5 + keyword,
-		FOR				:  6 + keyword,
-		NEW				:  7 + keyword,
-		VAR				:  8 + keyword,
-		CONST			:  9 + keyword,
-		CONTINUE		: 10 + keyword,
-		FUNCTION		: 11 + keyword,
-		RETURN			: 12 + keyword,
-		IF				: 13 + keyword,
-		THIS			: 14 + keyword,
-		DO				: 15 + keyword,
-		WHILE			: 16 + keyword,
-		SWITCH			: 17 + keyword,
-		WITH			: 18 + keyword,
-		RESERVED		: 19 + keyword,
-		RESERVED_STRICT	: 20 + keyword,
-		THROW			: 21 + keyword,
-		TRY				: 22 + keyword,
-		CATCH			: 23 + keyword,
-		FINALLY			: 24 + keyword,
-		DEBUGGER		: 25 + keyword,
-		ELSE			: 26 + keyword,
+	//  KEYWORDS
+		NULL					: [ 0 + keyword                                                 ,            "null"],
+		TRUE					: [ 1 + keyword                                                 ,            "true"],
+		FALSE					: [ 2 + keyword                                                 ,           "false"],
+		BREAK					: [ 3 + keyword                                                 ,           "break"],
+		CASE					: [ 4 + keyword                                                 ,            "case"],
+		DEFAULT					: [ 5 + keyword                                                 ,         "default"],
+		FOR						: [ 6 + keyword                                                 ,             "for"],
+		NEW						: [ 7 + keyword                                                 ,             "new"],
+		VAR						: [ 8 + keyword                                                 ,             "var"],
+		CONST					: [ 9 + keyword                                                 ,           "const"],
+		CONTINUE				: [10 + keyword                                                 ,        "continue"],
+		FUNCTION				: [11 + keyword                                                 ,        "function"],
+		RETURN					: [12 + keyword                                                 ,          "return"],
+		IF						: [13 + keyword                                                 ,              "if"],
+		THIS					: [14 + keyword                                                 ,            "this"],
+		DO						: [15 + keyword                                                 ,              "do"],
+		WHILE					: [16 + keyword                                                 ,           "while"],
+		SWITCH					: [17 + keyword                                                 ,          "switch"],
+		WITH					: [18 + keyword                                                 ,            "with"],
+		RESERVED				: [19 + keyword                                                 ,                ""],
+		RESERVED_STRICT			: [20 + keyword                                                 ,                ""],
+		THROW					: [21 + keyword                                                 ,           "throw"],
+		TRY						: [22 + keyword                                                 ,             "try"],
+		CATCH					: [23 + keyword                                                 ,           "catch"],
+		FINALLY					: [24 + keyword                                                 ,         "finally"],
+		DEBUGGER				: [25 + keyword                                                 ,        "debugger"],
+		ELSE					: [26 + keyword                                                 ,            "else"],
 		
-		// punctuators
-		OPEN_BRACE		:  1 + punctuator,
-		CLOSE_BRACE		:  2 + punctuator,
-		OPEN_PAREN		:  3 + punctuator,
-		CLOSE_PAREN		:  4 + punctuator,
-		OPEN_BRACKET	:  5 + punctuator,
-		CLOSE_BRACKET	:  6 + punctuator,
-		COMMA			:  7 + punctuator,
-		QUESTION		:  8 + punctuator,
-		SEMICOLON		:  9 + punctuator,
-		COLON			: 10 + punctuator,
-		DOT				: 11 + punctuator,
-		EQUAL			: 12 + punctuator,
-		PLUS_EQUAL		: 13 + punctuator,
-		MINUS_EQUAL		: 14 + punctuator,
-		MULT_EQUAL		: 15 + punctuator,
-		DIV_EQUAL		: 16 + punctuator,
-		LSHIFT_EQUAL	: 17 + punctuator,
-		RSHIFT_EQUAL	: 18 + punctuator,
-		URSHIFT_EQUAL	: 19 + punctuator,
-		AND_EQUAL		: 20 + punctuator,
-		OR_EQUAL		: 21 + punctuator,
-		XOR_EQUAL		: 22 + punctuator,
-		MOD_EQUAL		: 23 + punctuator,
-		NUMBER			: 24 + punctuator,
-		STRING			: 25 + punctuator,
-		IDENTIFIER		: 26 + punctuator,
-		ERROR			: 27 + punctuator,
-		EOF				: 28 + punctuator,
+	//  PUNCTUATORS
+		OPEN_BRACE				: [ 0 + punctuator                                              ,               "{"],
+		CLOSE_BRACE				: [ 1 + punctuator                                              ,               "}"],
+		OPEN_PAREN				: [ 2 + punctuator                                              ,               "("],
+		CLOSE_PAREN				: [ 3 + punctuator                                              ,               ")"],
+		OPEN_BRACKET			: [ 4 + punctuator                                              ,               "["],
+		CLOSE_BRACKET			: [ 5 + punctuator                                              ,               "]"],
+		COMMA					: [ 6 + punctuator                                              ,               ","],
+		QUESTION				: [ 7 + punctuator                                              ,               "?"],
+		NUMBER					: [ 8 + punctuator                                              ,                ""],
+		IDENTIFIER				: [ 9 + punctuator                                              ,                ""],
+		STRING					: [10 + punctuator                                              ,                ""],
+		SEMICOLON				: [11 + punctuator                                              ,               ";"],
+		COLON					: [12 + punctuator                                              ,               ":"],
+		DOT						: [13 + punctuator                                              ,               "."],
+		ERROR					: [14 + punctuator                                              ,                ""],
+		EOF						: [15 + punctuator                                              ,                ""],
+		EQUAL					: [16 + punctuator                                              ,               "="],
+		PLUS_EQUAL				: [17 + punctuator                                              ,              "+="],
+		MINUS_EQUAL				: [18 + punctuator                                              ,              "-="],
+		MULTIPLY_EQUAL			: [19 + punctuator                                              ,              "*="],
+		DIVIDE_EQUAL			: [20 + punctuator                                              ,              "/="],
+		LSHIFT_EQUAL			: [21 + punctuator                                              ,             "<<="],
+		RSHIFT_EQUAL			: [22 + punctuator                                              ,             ">>="],
+		RSHIFT_EQUAL_UNSIGNED	: [23 + punctuator                                              ,            ">>>="],
+		AND_EQUAL				: [24 + punctuator                                              ,              "&="],
+		MOD_EQUAL				: [25 + punctuator                                              ,              "%="],
+		XOR_EQUAL				: [26 + punctuator                                              ,              "^="],
+		OR_EQUAL				: [27 + punctuator                                              ,              "|="],
+		LAST_UNTAGGED			: [28 + punctuator                                              ,                ""],
 		
-		// binary operators
-		OR				:  0 + ( 1 << precedence) | ( 1 << precedence_shift),
-		AND				:  1 + ( 2 << precedence) | ( 2 << precedence_shift),
-		BITWISE_OR		:  2 + ( 3 << precedence) | ( 3 << precedence_shift),
-		BITWISE_XOR		:  3 + ( 4 << precedence) | ( 4 << precedence_shift),
-		BITWISE_AND		:  4 + ( 5 << precedence) | ( 5 << precedence_shift),
-		EQUAL_EQUAL		:  5 + ( 6 << precedence) | ( 6 << precedence_shift),
-		NOT_EQUAL		:  6 + ( 6 << precedence) | ( 6 << precedence_shift),
-		STRICT_EQUAL	:  7 + ( 6 << precedence) | ( 6 << precedence_shift),
-		STRICT_NOT_EQUAL:  8 + ( 6 << precedence) | ( 6 << precedence_shift),
-		LESS			:  9 + ( 7 << precedence) | ( 7 << precedence_shift),
-		GREATER			: 10 + ( 7 << precedence) | ( 7 << precedence_shift),
-		LESS_EQUAL		: 11 + ( 7 << precedence) | ( 7 << precedence_shift),
-		GREATER_EQUAL	: 12 + ( 7 << precedence) | ( 7 << precedence_shift),
-		INSTANCEOF		: 13 + ( 7 << precedence) | ( 7 << precedence_shift) | keyword,
-		IN				: 14 + ( 7 << precedence) | keyword,
-		LSHIFT			: 15 + ( 8 << precedence) | ( 8 << precedence_shift),
-		RSHIFT			: 16 + ( 8 << precedence) | ( 8 << precedence_shift),
-		URSHIFT			: 17 + ( 8 << precedence) | ( 8 << precedence_shift),
-		PLUS			: 18 + ( 9 << precedence) | ( 9 << precedence_shift) | unary,
-		MINUS			: 19 + ( 9 << precedence) | ( 9 << precedence_shift) | unary,
-		MULT			: 20 + (10 << precedence) | (10 << precedence_shift),
-		DIV				: 21 + (10 << precedence) | (10 << precedence_shift),
-		MOD				: 22 + (10 << precedence) | (10 << precedence_shift),
+	//  BINARY OPERATORS
+		OR						: [ 0 + ( 1 << precedence) | ( 1 << precedence_shift)           ,              "||"],
+		AND						: [ 1 + ( 2 << precedence) | ( 2 << precedence_shift)           ,              "&&"],
+		BITWISE_OR				: [ 2 + ( 3 << precedence) | ( 3 << precedence_shift)           ,               "|"],
+		BITWISE_XOR				: [ 3 + ( 4 << precedence) | ( 4 << precedence_shift)           ,               "^"],
+		BITWISE_AND				: [ 4 + ( 5 << precedence) | ( 5 << precedence_shift)           ,               "&"],
+		EQUAL_EQUAL				: [ 5 + ( 6 << precedence) | ( 6 << precedence_shift)           ,              "=="],
+		NOT_EQUAL				: [ 6 + ( 6 << precedence) | ( 6 << precedence_shift)           ,              "!="],
+		STRICT_EQUAL			: [ 7 + ( 6 << precedence) | ( 6 << precedence_shift)           ,             "==="],
+		STRICT_NOT_EQUAL		: [ 8 + ( 6 << precedence) | ( 6 << precedence_shift)           ,             "!=="],
+		LESS					: [ 9 + ( 7 << precedence) | ( 7 << precedence_shift)           ,               "<"],
+		GREATER					: [10 + ( 7 << precedence) | ( 7 << precedence_shift)           ,               ">"],
+		LESS_EQUAL				: [11 + ( 7 << precedence) | ( 7 << precedence_shift)           ,              "<="],
+		GREATER_EQUAL			: [12 + ( 7 << precedence) | ( 7 << precedence_shift)           ,              ">="],
+		INSTANCEOF				: [13 + ( 7 << precedence) | ( 7 << precedence_shift) | keyword ,      "instanceof"],
+		IN						: [14 + ( 7 << precedence) | keyword                            ,              "in"],
+		LSHIFT					: [15 + ( 8 << precedence) | ( 8 << precedence_shift)           ,              "<<"],
+		RSHIFT					: [16 + ( 8 << precedence) | ( 8 << precedence_shift)           ,              ">>"],
+		URSHIFT					: [17 + ( 8 << precedence) | ( 8 << precedence_shift)           ,             ">>>"],
+		PLUS					: [18 + ( 9 << precedence) | ( 9 << precedence_shift) | unary   ,               "+"],
+		MINUS					: [19 + ( 9 << precedence) | ( 9 << precedence_shift) | unary   ,               "-"],
+		MULT					: [20 + (10 << precedence) | (10 << precedence_shift)           ,               "*"],
+		DIV						: [21 + (10 << precedence) | (10 << precedence_shift)           ,               "/"],
+		MOD						: [22 + (10 << precedence) | (10 << precedence_shift)           ,               "%"],
 
-		// unary operators
-		PLUSPLUS		: 0 + unary,
-		PLUSPLUS_AUTO	: 1 + unary,
-		MINUSMINUS		: 2 + unary,
-		MINUSMINUS_AUTO	: 3 + unary,
-		EXCLAMATION		: 4 + unary,
-		TILDE			: 5 + unary,
+	//  UNARY OPERATORS
+		PLUSPLUS				: [0 + unary                                                    ,              "++"],
+		PLUSPLUS_AUTO			: [1 + unary                                                    ,              "++"],
+		MINUSMINUS				: [2 + unary                                                    ,              "--"],
+		MINUSMINUS_AUTO			: [3 + unary                                                    ,              "--"],
+		EXCLAMATION				: [4 + unary                                                    ,               "!"],
+		TILDE					: [5 + unary                                                    ,               "~"],
 		
-		// unary keyword operators
-		TYPEOF			: 6 + unary | keyword,
-		VOID			: 7 + unary | keyword,
-		DELETE			: 8 + unary | keyword,
-	});
+	//  UNARY KEYWORD OPERATORS
+		TYPEOF					: [6 + unary | keyword                                          ,          "typeof"],
+		VOID					: [7 + unary | keyword                                          ,            "void"],
+		DELETE					: [8 + unary | keyword                                          ,          "delete"]
+	};
 	
-	var identifiers = Object.freeze({
+	for(var s in kindNameMap)
+	{
+		if(!kindNameMap.hasOwnProperty(s))
+			continue;
+
+		// add the kind key/value pair
+		Object.defineProperty(kinds, s, {
+			enumerable: true,
+			configurable: false,
+			writable: false,
+			value: kindNameMap[s][0]
+		});
+		
+		// add the printable name
+		kindNames.push(kindNameMap[s][1]);
+	}
+	
+	identifiers = {
 		"null"		 : kinds.NULL,
 		"true"		 : kinds.TRUE,
 		"false"		 : kinds.FALSE,
@@ -199,12 +214,12 @@ Object.extend(jsc.Token, {
 		"public"	 : kinds.RESERVED_STRICT,
 		"static"	 : kinds.RESERVED_STRICT,
 		"yield"		 : kinds.RESERVED_STRICT,
-	});
+	};
 	
 	Object.extend(jsc.Token, {
 		KindNames: kindNames,
-		Kind: kinds,
-		Identifiers: identifiers
+		Kind: Object.freeze(kinds),
+		Identifiers: Object.freeze(identifiers)
 	});
 	
 })();

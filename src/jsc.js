@@ -24,8 +24,18 @@ var utils = require("./utils");
 	Object.extend(jsc, {
 		parse: function(source, debugMode) {
 			var parser = new jsc.Parser(source, null, false);
+			var parserResult = null;
+			
 			parser.debugMode = jsc.Utils.valueOrDefault(debugMode, false);
-			return parser.parse();
+			parserResult = parser.parse();
+			
+			if(!debugMode && parser.hasError)
+			{
+				var err = new Error(parser.error);
+				err.name = "Parse Error";
+				
+				throw err;
+			}
 		}
 	});
 	
