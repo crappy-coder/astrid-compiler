@@ -21,7 +21,7 @@ jsc.AST.Context = Object.define({
 		this.evalCount = 0;
 		this.features = jsc.AST.CodeFeatureFlags.NONE;
 		this.variableDecls = [];
-		this.functions = null;
+		this.functions = [];
 		this.constantCount = 0;
 	},
 	
@@ -45,104 +45,216 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.EmptyStatement(this.lineNumber);
 	},
 	
-	createExpressionStatement: function(expr, begin, end) {
-		var statement = new jsc.AST.ExpressionStatement(this.lineNumber, expr);
-		statement.startLine = begin;
-		statement.endLine = end;
-		
+	createExpressionStatement: function(expression, beginLine, endLine) {
+		var statement = new jsc.AST.ExpressionStatement(this.lineNumber, expression);
+		this.setStatementLocation(statement, beginLine, endLine);
+
 		return statement;
 	},
 	
-	createBlockStatement: function(statements, begin, end) {
-	
+	createBlockStatement: function(statements, beginLine, endLine) {
+		var statement = new jsc.AST.BlockStatement(this.lineNumber, statements);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
 	createLabelStatement: function(labelInfo, statement) {
-	
+		var labelStatement = new jsc.AST.LabelStatement(this.lineNumber, labelInfo.name, statement);
+		this.setExceptionLocation(labelStatement, labelInfo.begin, labelInfo.end, labelInfo.end);
+
+		return labelStatement;
 	},
 	
-	createVarStatement: function(expr, begin, end) {
-	
+	createVarStatement: function(expression, beginLine, endLine) {
+		var statement = null;
+
+		if(jsc.Utils.isNull(expression))
+			statement = new jsc.AST.EmptyStatement(this.lineNumber);
+		else
+			statement = new jsc.AST.VarStatement(this.lineNumber, expression);
+
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createConstStatement: function(expr, begin, end) {
-	
+	createConstStatement: function(expression, beginLine, endLine) {
+		var statement = new jsc.AST.ConstStatement(this.lineNumber, expression);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createIfStatement: function(condition, trueBlock, falseBlock, begin, end) {
-	
+	createIfStatement: function(conditionExpression, trueStatement, falseStatement, beginLine, endLine) {
+		var statement = null;
+
+		if(jsc.Utils.isNull(falseStatement))
+			statement = new jsc.AST.IfStatement(this.lineNumber, conditionExpression, trueStatement);
+		else
+			statement = new jsc.AST.IfElseStatement(this.lineNumber, conditionExpression, trueStatement, falseStatement);
+
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createWhileStatement: function(expr, statement, begin, end) {
-	
+	createWhileStatement: function(expression, statement, beginLine, endLine) {
+		var whileStatement = new jsc.AST.WhileStatement(this.lineNumber, expression, statement);
+		this.setStatementLocation(whileStatement, beginLine, endLine);
+
+		return whileStatement;
 	},
 	
-	createDoWhileStatement: function(expr, statement, begin, end) {
-	
+	createDoWhileStatement: function(expression, statement, beginLine, endLine) {
+		var doWhileStatement = new jsc.AST.DoWhileStatement(this.lineNumber, expression, statement);
+		this.setStatementLocation(doWhileStatement, beginLine, endLine);
+
+		return doWhileStatement;
 	},
 	
 	createForStatement: function(initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration, beginLine, endLine) {
-	
+		var forStatement = new jsc.AST.ForStatement(this.lineNumber, initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration);
+		this.setStatementLocation(forStatement, beginLine, endLine);
+
+		return forStatement;
 	},
 	
-	createForInStatement: function(lhs, rhs, statement, start, divot, end, beginLine, endLine) {
-	
+	createForInStatement: function(leftExpression, rightExpression, statement, start, divot, end, beginLine, endLine) {
+		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, null, false, null, leftExpression, rightExpression, statement, 0, 0, 0);
+		this.setExceptionLocation(forInStatement, start, divot, end);
+		this.setStatementLocation(forInStatement, beginLine, endLine);
+
+		return forInStatement;
 	},
 	
-	createForInStatementWithVarDecl: function(name, initExpr, expr, statement, start, divot, end, initBegin, initEnd, beginLine, endLine) {
-	
+	createForInStatementWithVarDecl: function(name, initializeExpression, expression, statement, start, divot, end, initBegin, initEnd, beginLine, endLine) {
+		var leftExpression = new jsc.AST.ResolveExpression(this.lineNumber, name, initBegin - (initBegin - start));
+
+		if(!jsc.Utils.isNull(initializeExpression))
+		{
+			initializeExpression = new jsc.AST.AssignResolveExpression(this.lineNumber, name, initializeExpression, true);
+			initializeExpression.exceptionDivot = initBegin;
+			initializeExpression.exceptionStartPosition = initBegin - (initBegin - start);
+			initializeExpression.exceptionEndPosition = (initEnd - initBegin) - initBegin;
+		}
+
+		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, name, true, initializeExpression, leftExpression, expression, statement, 0, 0, 0);
+		this.setExceptionLocation(forInStatement, start, divot+1, end);
+		this.setStatementLocation(forInStatement, beginLine, endLine);
+
+		return forInStatement;
 	},
 	
 	createContinueStatement: function(name, beginColumn, endColumn, beginLine, endLine) {
-	
+		var statement = new jsc.AST.ContinueStatement(this.lineNumber, name);
+		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
 	createBreakStatement: function(name, beginColumn, endColumn, beginLine, endLine) {
-	
+		var statement = new jsc.AST.BreakStatement(this.lineNumber, name);
+		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createReturnStatement: function(expr, beginColumn, endColumn, beginLine, endLine) {
-	
+	createReturnStatement: function(expression, beginColumn, endColumn, beginLine, endLine) {
+		var statement = new jsc.AST.ReturnStatement(this.lineNumber, expression);
+		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createThrowStatement: function(expr, beginColumn, endColumn, beginLine, endLine) {
-	
+	createThrowStatement: function(expression, beginColumn, endColumn, beginLine, endLine) {
+		var statement = new jsc.AST.ThrowStatement(this.lineNumber, expression);
+		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createDebuggerStatement: function(begin, end) {
-	
+	createDebuggerStatement: function(beginLine, endLine) {
+		var statement = new jsc.AST.DebuggerStatement(this.lineNumber);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createTryStatement: function(catchVarName, tryBlock, catchBlock, finallyBlock, beginLine, endLine) {
-	
+	createTryStatement: function(exceptionVarName, tryStatement, catchStatement, finallyStatement, beginLine, endLine) {
+		var statement = new jsc.AST.TryStatement(this.lineNumber, exceptionVarName, tryStatement, catchStatement, finallyStatement);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		if(!jsc.Utils.isNull(catchStatement))
+			this.features |= jsc.AST.CodeFeatureFlags.CATCH;
+
+		return statement;
 	},
 
 	createWithStatement: function(expression, statement, start, end, beginLine, endLine) {
-	
+		var withStatement = new jsc.AST.WithStatement(this.lineNumber, expression, statement, end, end - start);
+		this.setStatementLocation(withStatement, beginLine, endLine);
+
+		this.features |= jsc.AST.CodeFeatureFlags.WITH;
+
+		return withStatement;
 	},
 	
-	createSwitchStatement: function(expression, firstClauseList, defaultClause, secondClauseList, beginLine, endLine) {
-	
+	createSwitchStatement: function(expression, defaultClause, firstClauseList, secondClauseList, beginLine, endLine) {
+		var statement = new jsc.AST.SwitchStatement(this.lineNumber, expression, defaultClause, firstClauseList, secondClauseList);
+		this.setStatementLocation(statement, beginLine, endLine);
+
+		return statement;
 	},
 	
-	createSwitchClause: function(expression, statements) {
-	
-	},
-	
-	createSwitchClauseList: function(clause, tail) {
-	
+	createSwitchClauseList: function(expression, statements, tail) {
+		return new jsc.AST.SwitchClauseListNode(expression, statements, tail);
 	},
 	
 	createInitialFunctionStatement: function(inStrictMode) {
-	
+		return new jsc.AST.FunctionNode(this.lineNumber, inStrictMode);
 	},
 	
-	createFunctionStatement: function(statements, variables, functions, capturedVariables, features, constantCount, openBracePosition, closeBracePosition, bodyBeginLine, hasReturn) {
-	
+	createFunctionStatement: function(statements, variables, functions, capturedVariables, features, constantCount, openBracePosition, closeBracePosition, bodyBeginLine, hasReturnValue) {
+		var func = new jsc.AST.FunctionNode(this.lineNumber);
+
+		func.features = features;
+		func.source = this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine);
+		func.statements = statements;
+		func.functions = functions;
+		func.variables = variables;
+		func.capturedVariables = capturedVariables;
+		func.constantCount = constantCount;
+		func.hasReturnValue = hasReturnValue;
+
+		// set each of the functions parent to this new
+		// function node
+		if(functions)
+		{
+			functions.forEach(function(f) {
+				f.parentFunction = func;
+			});
+		}
+
+		return func;
 	},
 	
 	createFunctionDeclarationStatement: function(name, functionNode, parametersNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
-	
+		var subSource = this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine);
+		var funcDecl = new jsc.AST.FunctionDeclarationStatement(this.lineNumber, name, functionNode, subSource, parametersNode);
+
+		this.setStatementLocation(functionNode, bodyBeginLine, bodyEndLine);
+
+		if(name === "arguments")
+			this.features |= jsc.AST.CodeFeatureFlags.ARGUMENTS;
+
+		this.functions.push(functionNode);
+
+		return funcDecl;
 	},
 		
 		
@@ -150,17 +262,73 @@ jsc.AST.Context = Object.define({
 	// Expressions
 	//
 		
-	createAssignmentExpression: function(rhs, initialCount, currentCount, lastTokenEnd) {
+	createAssignmentExpression: function(expression, initialCount, currentCount, lastTokenEnd) {
 		var info = this.assignmentStack[this.assignmentStack.length-1];
-		var expr = this.createAssignment(info.op, info.expression, rhs, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd);
+		var expr = this.createAssignment(info.op, info.expression, expression, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd);
 		
 		this.assignmentStack.pop();
 		
 		return expr;
 	},
 	
-	createAssignment: function(op, lhs, rhs, leftHasAssignments, rightHasAssignments, start, divot, end) {
-	
+	createAssignment: function(op, leftExpression, rightExpression, leftHasAssignments, rightHasAssignments, start, divot, end) {
+
+		if(!leftExpression.isLocation)
+			return new jsc.AST.AssignErrorExpression(this.lineNumber, leftExpression, rightExpression, op, divot, divot - start, end - divot);
+
+		var expr = null;
+
+
+		// resolve expression
+		if(left.isResolve)
+		{
+			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
+			{
+				if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
+					rightExpression.functionNode.inferredName = leftExpression.name;
+
+				expr = new jsc.AST.AssignResolveExpression(this.lineNumber, leftExpression.name, rightExpression, rightHasAssignments);
+				this.setExceptionLocation(expr, start, divot, end);
+
+				return expr;
+			}
+
+			return new jsc.AST.ReadModifyResolveExpression(this.lineNumber, leftExpression.name, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+		}
+
+
+		// bracket expression
+		if(left.isBracketAccessor)
+		{
+			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
+				return new jsc.AST.AssignBracketExpression(this.lineNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
+
+			expr = new jsc.AST.ReadModifyBracketExpression(this.lineNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+			expr.setExpressionInfo(leftExpression.exceptionDivot, leftExpression.exceptionEndPosition);
+
+			return expr;
+		}
+
+
+		// dot expression
+		if(leftExpression.isDotAccessor)
+		{
+			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
+			{
+				if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
+					rightExpression.functionNode.inferredName = leftExpression.name;
+
+				return new jsc.AST.AssignDotExpression(this.lineNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
+			}
+
+			expr = new jsc.AST.ReadModifyDotExpression(this.lineNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+			expr.setExpressionInfo(leftExpression.exceptionDivot, leftExpression.exceptionEndPosition);
+
+			return expr;
+		}
+
+
+		throw new Error("Invalid assignment expression.");
 	},
 	
 	createAssignResolveExpression: function() {
@@ -369,6 +537,17 @@ jsc.AST.Context = Object.define({
 	
 	popUnaryToken: function() {
 		this.unaryTokenStack.pop();
+	},
+
+	setStatementLocation: function(statement, beginLine, endLine) {
+		statement.startLine = beginLine;
+		statement.endLine = endLine;
+	},
+
+	setExceptionLocation: function(throwableNode, start, divot, end) {
+		throwableNode.exceptionDivot = divot;
+		throwableNode.exceptionStartPosition = divot - start;
+		throwableNode.exceptionEndPosition = end - divot;
 	}
 });
 
@@ -676,11 +855,11 @@ jsc.AST.ConstantDeclarationExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.FunctionExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, name, functionStatement, source, parameters) {
+	initialize: function($super, lineNumber, name, functionNode, source, parameters) {
 		$super(jsc.AST.NodeKind.FUNCTION_EXPR, lineNumber);
 
-		this.functionStatement = functionStatement;
-		this.functionStatement.finishParsing(name, source, parameters, jsc.AST.NodeKind.FUNCTION_EXPR);
+		this.functionNode = functionNode;
+		this.functionNode.finalize(source, name, parameters, jsc.AST.NodeKind.FUNCTION_EXPR);
 	}
 });
 
@@ -1524,23 +1703,23 @@ jsc.AST.IfElseStatement = Object.define(jsc.AST.IfStatement, {
 
 /** @class */
 jsc.AST.SwitchStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression, firstClauseList, secondClauseList, defaultClause) {
+	initialize: function($super, lineNumber, expression, defaultClause, firstClauseList, secondClauseList) {
 		$super(jsc.AST.NodeKind.SWITCH, lineNumber);
 
 		this.expression = expression;
+		this.defaultClause = defaultClause;
 		this.firstClauseList = firstClauseList;
 		this.secondClauseList = secondClauseList;
-		this.defaultClause = defaultClause;
 	}
 });
 
 
 /** @class */
 jsc.AST.TryStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, exceptionName, tryBlock, catchBlock, finallyBlock) {
+	initialize: function($super, lineNumber, exceptionVarName, tryBlock, catchBlock, finallyBlock) {
 		$super(jsc.AST.NodeKind.TRY, lineNumber);
 
-		this.exceptionName = exceptionName;
+		this.exceptionVarName = exceptionVarName;
 		this.tryBlock = tryBlock;
 		this.catchBlock = catchBlock;
 		this.finallyBlock = finallyBlock;
@@ -1701,11 +1880,11 @@ jsc.AST.ForInStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.FunctionDeclarationStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, name, functionStatement, source, parameters) {
+	initialize: function($super, lineNumber, name, functionNode, source, parameters) {
 		$super(jsc.AST.NodeKind.FUNCTION_DECL, lineNumber);
 
-		this.functionStatement = functionStatement;
-		this.functionStatement.finishParsing(name, source, parameters, jsc.AST.NodeKind.FUNCTION_DECL);
+		this.functionNode = functionNode;
+		this.functionNode.finalize(source, name, parameters, jsc.AST.NodeKind.FUNCTION_DECL);
 	}
 });
 
@@ -1761,24 +1940,69 @@ jsc.AST.ScopedStatement = Object.define(jsc.AST.Statement, {
 });
 
 
+/** @class */
+jsc.AST.EvalStatement = Object.define(jsc.AST.ScopedStatement, {
+	initialize: function($super, lineNumber) {
+		$super(jsc.AST.NodeKind.EVAL, lineNumber);
+	}
+});
+
+
+/**
+ * An AST node that represents a function.
+ *
+ * @class
+ */
+jsc.AST.FunctionNode = Object.define(jsc.AST.ScopedStatement, {
+	initialize: function($super, lineNumber, inStrictMode) {
+		$super(jsc.AST.NodeKind.FUNCTION, lineNumber, inStrictMode);
+
+		this.name = null;
+		this.inferredName = null;
+		this.parameterNames = null;
+		this.hasReturnValue = false;
+		this.parentFunction = null;
+		this.ownerKind = jsc.AST.NodeKind.UNKNOWN;
+	},
+
+	get qualifiedName() {
+		var name = jsc.Utils.isStringNullOrEmpty(this.name) ? this.inferredName : this.name;
+
+		if(jsc.Utils.isStringNullOrEmpty(name))
+			name = "anonymous";
+
+		if(jsc.Utils.isNull(this.parentFunction))
+			return name;
+
+		return this.parentFunction.qualifiedName + "." + name;
+	},
+
+	get parameterCount() {
+		return (this.parameterNames ? this.parameterNames.length : 0);
+	},
+
+	finalize: function(source, name, parameterList, ownerKind) {
+		this.source = source;
+		this.name = name;
+		this.ownerKind = ownerKind;
+		this.parameterNames = [];
+
+		for(var p = parameterList; p; p = p.next)
+			this.parameterNames.push(p.name);
+	}
+});
+
+
 /**
  * An AST node that represents a complete program (script).
  *
  * @class
  */
-jsc.AST.ScriptNode = Object.define(jsc.AST.ScopedStatement, {
+jsc.AST.Script = Object.define(jsc.AST.ScopedStatement, {
 	initialize: function($super, source, lineNumber) {
 		$super(jsc.AST.NodeKind.SCRIPT, lineNumber);
 		
 		this.source = source;
-	}
-});
-
-
-/** @class */
-jsc.AST.EvalStatement = Object.define(jsc.AST.ScopedStatement, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.EVAL, lineNumber);
 	}
 });
 
@@ -1864,6 +2088,31 @@ jsc.AST.PropertyListNode = Object.define(jsc.AST.Node, {
 		return this.property.name;
 	}
 });
+
+
+/**
+ * Represents one or more case clauses in a switch statement.
+ *
+ * Example:
+ *   case [expression]:
+ *   {
+ *     [statements];
+ *   }
+ *   ...
+ *
+ * @class
+ */
+jsc.AST.SwitchClauseListNode = Object.define({
+	initialize: function(expression, statements, nextNode) {
+		this.expression = expression;
+		this.statements = statements;
+		this.next = null;
+
+		if(!jsc.Utils.isNull(nextNode))
+			nextNode.next = this;
+	}
+});
+
 
 
 /**

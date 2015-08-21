@@ -184,7 +184,7 @@ jsc.Parser = Object.define({
 				throw new Error(jsc.Utils.format("[%d, %d] - %s", errorLine, errorColumn, errorMessage));
 			}
 
-			program = new jsc.AST.ScriptNode(this.sourceCode, this.lexer.lastLineNumber);
+			program = new jsc.AST.Script(this.sourceCode, this.lexer.lastLineNumber);
 			program.startLine = this.sourceCode.startLine;
 			program.endLine = this.state.lastLine;
 			program.constantCount = this.state.constantCount;
@@ -1001,7 +1001,7 @@ jsc.Parser = Object.define({
 
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
 
-		return context.createSwitchStatement(expr, firstClauses, defaultClause, secondClauses, beginLine, endLine);
+		return context.createSwitchStatement(expr, defaultClause, firstClauses, secondClauses, beginLine, endLine);
 	},
 	
 	parseSwitchClauses: function(context) {
@@ -1010,7 +1010,6 @@ jsc.Parser = Object.define({
 
 		var condition = null;
 		var statements = null;
-		var clause = null;
 		var clauses = null;
 		var next = null;
 
@@ -1024,8 +1023,7 @@ jsc.Parser = Object.define({
 		statements = this.parseStatements(context, false);
 		this.failWhenNull(statements);
 
-		clause = context.createSwitchClause(condition, statements);
-		clauses = context.createSwitchClauseList(clause);
+		clauses = context.createSwitchClauseList(condition, statements);
 		next = clauses;
 
 		while(this.match(jsc.Token.Kind.CASE))
@@ -1040,8 +1038,7 @@ jsc.Parser = Object.define({
 			statements = this.parseStatements(context, false);
 			this.failWhenNull(statements);
 
-			clause = context.createSwitchClause(condition, statements);
-			next = context.createSwitchClauseList(clause, next);
+			next = context.createSwitchClauseList(condition, statements, next);
 		}
 
 		return clauses;
@@ -1059,7 +1056,7 @@ jsc.Parser = Object.define({
 		statements = this.parseStatements(context, false);
 		this.failWhenNull(statements);
 
-		return context.createSwitchClause(null, statements);
+		return context.createSwitchClauseList(null, statements);
 	},
 	
 	parseThrow: function(context) {
@@ -1882,7 +1879,7 @@ jsc.Parser = Object.define({
 	
 	parseFunctionBody: function(context) {
 		if(this.match(jsc.Token.Kind.CLOSE_BRACE))
-			return context.createInitialFunctionStatement(GetStrictMode());
+			return context.createInitialFunctionStatement(this.inStrictMode);
 
 		var functionContext = new jsc.AST.Context(this.sourceCode, this.lexer);
 		var lastStatementDepth = this.state.statementDepth;
@@ -2435,19 +2432,22 @@ jsc.Parser = Object.define({
 		var line = this.state.lastLine;
 		var column = this.state.lastTokenBegin - this.lexer.lastLinePosition - 1;
 		var filename = this.sourceCode.url;
-		
-		msg += " \n\tin " + filename + ":[" + line + ":" + column + "]";
+		var lineColumnString = line + ":" + column;
 
-		this.setErrorImpl(msg, throwError);
+		msg += " \n\tin " + filename + ":[" + lineColumnString + "]";
+
+		this.setErrorImpl(msg, throwError, "Parse Error (" + lineColumnString + ")");
 	},
 
-	setErrorImpl: function(message, throwError) {
+	setErrorImpl: function(message, throwError, errorName) {
 		this.state.error = message;
 		
 		if(throwError)
 		{
 			var err = new Error(this.error);
-			err.name = "Parse Error";
+
+			if(errorName)
+				err.name = errorName;
 			
 			throw err;
 		}

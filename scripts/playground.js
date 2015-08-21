@@ -1,10 +1,12 @@
 "use strict"
 
 var jsc = require("../src/jsc");
+var path = require("path");
 var fs = require("fs");
-var file = "playground-script.js";
+var file = path.join(path.dirname(module.filename), "playground-script.js");
 
 fs.readFile(file, function(err, data) {
+
 	var sc = new jsc.SourceCode(data.toString(), file);
 	var result = jsc.parse(sc, true);
 	
