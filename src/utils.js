@@ -139,6 +139,10 @@ jsc.Utils = {
 	toString: function(value) {
 		return Object.prototype.toString.call(value);
 	},
+
+	toInt: function(value) {
+		return (value>>0);
+	},
 	
 	isUndefined: function(value) {
 		return (value === void(0));

@@ -1668,7 +1668,7 @@ jsc.Parser = Object.define({
 					this.nextIdentifier();
 					this.matchOrFail(jsc.Token.Kind.IDENTIFIER);
 					
-					baseExpr = context.createDotAccessorExpression(baseExpr, this.tok.value, beginColumn, endColumn, this.tokenEnd);
+					baseExpr = context.createDotAccessorExpression(this.tok.value, baseExpr, beginColumn, endColumn, this.tokenEnd);
 					
 					this.next();
 					break;
@@ -1946,7 +1946,7 @@ jsc.Parser = Object.define({
 		var argument = this.parseAssignment(context);
 		this.failWhenNull(argument);
 
-		var arguments = context.createArgumentsList(null, argument);
+		var arguments = context.createArgumentsList(argument, null);
 		var next = arguments;
 
 		while(this.match(jsc.Token.Kind.COMMA))
@@ -1956,7 +1956,7 @@ jsc.Parser = Object.define({
 			argument = this.parseAssignment(context);
 			this.failWhenNull(argument);
 
-			next = context.createArgumentsList(next, argument);
+			next = context.createArgumentsList(argument, next);
 		}
 
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
@@ -2132,7 +2132,7 @@ jsc.Parser = Object.define({
 					this.failWhenFalse(parseFunctionResult);
 
 					return context.createGetterOrSetterProperty(
-						type, propertyName, parseFunctionResult.parameters, parseFunctionResult.node, parseFunctionResult.openBracePos, parseFunctionResult.closeBracePos, parseFunctionResult.bodyBeginLine, this.state.lastLine);
+						propertyName, type, parseFunctionResult.parameters, parseFunctionResult.node, parseFunctionResult.openBracePos, parseFunctionResult.closeBracePos, parseFunctionResult.bodyBeginLine, this.state.lastLine);
 				}
 				case jsc.Token.Kind.NUMBER:
 				{

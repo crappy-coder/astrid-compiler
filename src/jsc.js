@@ -36,6 +36,8 @@ var utils = require("./utils");
 				
 				throw err;
 			}
+
+			return parserResult;
 		}
 	});
 	

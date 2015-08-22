@@ -9,7 +9,7 @@ fs.readFile(file, function(err, data) {
 
 	var sc = new jsc.SourceCode(data.toString(), file);
 	var result = jsc.parse(sc, true);
-	
+
 	if(!result)
 		return;
 	

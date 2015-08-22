@@ -36,10 +36,12 @@ jsc.AST.Context = Object.define({
 	get lastUnaryTokenBegin() {
 		return this.unaryTokenStack[this.unaryTokenStack.length-1][1];
 	},
-	
-	//
-	// Statements
-	//
+
+
+
+	//=============================================================================================
+	// CREATE STATEMENTS
+	//=============================================================================================
 	
 	createEmptyStatement: function() {
 		return new jsc.AST.EmptyStatement(this.lineNumber);
@@ -61,7 +63,7 @@ jsc.AST.Context = Object.define({
 	
 	createLabelStatement: function(labelInfo, statement) {
 		var labelStatement = new jsc.AST.LabelStatement(this.lineNumber, labelInfo.name, statement);
-		this.setExceptionLocation(labelStatement, labelInfo.begin, labelInfo.end, labelInfo.end);
+		this.setExceptionLocation(labelStatement, labelInfo.end, labelInfo.begin, labelInfo.end);
 
 		return labelStatement;
 	},
@@ -122,7 +124,7 @@ jsc.AST.Context = Object.define({
 	
 	createForInStatement: function(leftExpression, rightExpression, statement, start, divot, end, beginLine, endLine) {
 		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, null, false, null, leftExpression, rightExpression, statement, 0, 0, 0);
-		this.setExceptionLocation(forInStatement, start, divot, end);
+		this.setExceptionLocation(forInStatement, divot, start, end);
 		this.setStatementLocation(forInStatement, beginLine, endLine);
 
 		return forInStatement;
@@ -140,39 +142,39 @@ jsc.AST.Context = Object.define({
 		}
 
 		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, name, true, initializeExpression, leftExpression, expression, statement, 0, 0, 0);
-		this.setExceptionLocation(forInStatement, start, divot+1, end);
+		this.setExceptionLocation(forInStatement, divot+1, start, end);
 		this.setStatementLocation(forInStatement, beginLine, endLine);
 
 		return forInStatement;
 	},
 	
-	createContinueStatement: function(name, beginColumn, endColumn, beginLine, endLine) {
+	createContinueStatement: function(name, start, end, beginLine, endLine) {
 		var statement = new jsc.AST.ContinueStatement(this.lineNumber, name);
-		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createBreakStatement: function(name, beginColumn, endColumn, beginLine, endLine) {
+	createBreakStatement: function(name, start, end, beginLine, endLine) {
 		var statement = new jsc.AST.BreakStatement(this.lineNumber, name);
-		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createReturnStatement: function(expression, beginColumn, endColumn, beginLine, endLine) {
+	createReturnStatement: function(expression, start, end, beginLine, endLine) {
 		var statement = new jsc.AST.ReturnStatement(this.lineNumber, expression);
-		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createThrowStatement: function(expression, beginColumn, endColumn, beginLine, endLine) {
+	createThrowStatement: function(expression, start, end, beginLine, endLine) {
 		var statement = new jsc.AST.ThrowStatement(this.lineNumber, expression);
-		this.setExceptionLocation(statement, beginColumn, endColumn, endColumn);
+		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
@@ -257,11 +259,12 @@ jsc.AST.Context = Object.define({
 		return funcDecl;
 	},
 		
-		
-	//
-	// Expressions
-	//
-		
+
+
+	//=============================================================================================
+	// CREATE EXPRESSIONS
+	//=============================================================================================
+
 	createAssignmentExpression: function(expression, initialCount, currentCount, lastTokenEnd) {
 		var info = this.assignmentStack[this.assignmentStack.length-1];
 		var expr = this.createAssignment(info.op, info.expression, expression, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd);
@@ -288,7 +291,7 @@ jsc.AST.Context = Object.define({
 					rightExpression.functionNode.inferredName = leftExpression.name;
 
 				expr = new jsc.AST.AssignResolveExpression(this.lineNumber, leftExpression.name, rightExpression, rightHasAssignments);
-				this.setExceptionLocation(expr, start, divot, end);
+				this.setExceptionLocation(expr, divot, start, end);
 
 				return expr;
 			}
@@ -331,8 +334,14 @@ jsc.AST.Context = Object.define({
 		throw new Error("Invalid assignment expression.");
 	},
 	
-	createAssignResolveExpression: function() {
-	
+	createAssignResolveExpression: function(name, rightExpression, rightHasAssignments, start, divot, end) {
+		if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
+			rightExpression.functionNode.inferredName = name;
+
+		var expr = new jsc.AST.AssignResolveExpression(this.lineNumber, name, rightExpression, rightHasAssignments);
+		this.setExceptionLocation(expr, divot, start, end);
+
+		return expr;
 	},
 	
 	createResolveExpression: function(name, position) {
@@ -342,20 +351,64 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.ResolveExpression(this.lineNumber, name, position);
 	},
 	
-	createConstDeclarationExpression: function(name, initializer, next) {
-	
+	createConstDeclarationExpression: function(name, initializeExpression, nextExpression) {
+		return new jsc.AST.ConstantDeclarationExpression(this.lineNumber, name, initializeExpression, nextExpression);
 	},
 	
-	createConditionalExpression: function(condition, lhs, rhs) {
-	
+	createConditionalExpression: function(conditionExpression, leftExpression, rightExpression) {
+		return new jsc.AST.ConditionalExpression(this.lineNumber, conditionExpression, leftExpression, rightExpression);
 	},
 	
-	createPrefixExpression: function() {
-	
+	createPrefixExpression: function(expression, op, start, divot, end) {
+		if(!expression.isLocation)
+			return new jsc.AST.PrefixErrorExpression(this.lineNumber, expression, op, divot, divot - start, end - divot);
+
+		if(expression.isResolve)
+			return new jsc.AST.PrefixResolveExpression(this.lineNumber, expression.name, op, divot, divot - start, end - divot);
+
+		if(expression.isBracketAccessor)
+		{
+			var bracketExpr = new jsc.AST.PrefixBracketExpression(this.lineNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
+			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionStartPosition);
+
+			return bracketExpr;
+		}
+
+		if(expression.isDotAccessor)
+		{
+			var dotExpr = new jsc.AST.PrefixDotExpression(this.lineNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
+			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionStartPosition);
+
+			return dotExpr;
+		}
+
+		throw new Error("Invalid prefix expression.");
 	},
 	
-	createPostfixExpression: function() {
-	
+	createPostfixExpression: function(expression, op, start, divot, end) {
+		if(!expression.isLocation)
+			return new jsc.AST.PostfixErrorExpression(this.lineNumber, expression, op, divot, divot - start, end - divot);
+
+		if(expression.isResolve)
+			return new jsc.AST.PostfixResolveExpression(this.lineNumber, expression.name, op, divot, divot - start, end - divot);
+
+		if(expression.isBracketAccessor)
+		{
+			var bracketExpr = new jsc.AST.PostfixBracketExpression(this.lineNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
+			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
+
+			return bracketExpr;
+		}
+
+		if(expression.isDotAccessor)
+		{
+			var dotExpr = new jsc.AST.PostfixDotExpression(this.lineNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
+			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
+
+			return dotExpr;
+		}
+
+		throw new Error("Invalid postfix expression.");
 	},
 	
 	createLogicalNotExpression: function(expression) {
@@ -363,11 +416,24 @@ jsc.AST.Context = Object.define({
 	},
 	
 	createBitwiseNotExpression: function(expression) {
-	
+
+		// OPTIMIZATION: perform the bitwise not on the constant number value.
+		if(expression.isNumber)
+			return this.createNumberExpression(~jsc.Utils.toInt(expression.value), false);
+
+		return new jsc.AST.BitwiseNotExpression(this.lineNumber, expression);
 	},
 	
 	createNegateExpression: function(expression) {
-	
+
+		// OPTIMIZATION: peform the negation on the number expression directly.
+		if(expression.isNumber)
+		{
+			expression.value = -expression.value;
+			return expression;
+		}
+
+		return new jsc.AST.NegateExpression(this.lineNumber, expression);
 	},
 	
 	createUnaryPlusExpression: function(expression) {
@@ -375,7 +441,10 @@ jsc.AST.Context = Object.define({
 	},
 	
 	createTypeOfExpression: function(expression) {
-	
+		if(expression.isResolve)
+			return new jsc.AST.TypeOfResolveExpression(this.lineNumber, expression.name);
+
+		return new jsc.AST.TypeOfValueExpression(this.lineNumber, expression);
 	},
 	
 	createVoidExpression: function(expression) {
@@ -384,8 +453,20 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.VoidExpression(this.lineNumber, expression);
 	},
 	
-	createDeleteExpression: function(expression) {
-	
+	createDeleteExpression: function(expression, start, divot, end) {
+		if(!expression.isLocation)
+			return new jsc.AST.DeleteValueExpression(this.lineNumber, expression);
+
+		if(expression.isResolve)
+			return new jsc.AST.DeleteResolveExpression(this.lineNumber, expression.name, divot, divot - start, end - divot);
+
+		if(expression.isBracketAccessor)
+			return new jsc.AST.DeleteBracketExpression(this.lineNumber, expression.base, expression.subscript, divot, divot - start, end - divot);
+
+		if(expression.isDotAccessor)
+			return new jsc.AST.DeleteDotExpression(this.lineNumber, expression.name, expression.base, divot, divot - start, end - divot);
+
+		throw new Error("Invalid delete expression.");
 	},
 	
 	createThisExpression: function() {
@@ -394,36 +475,98 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.ThisExpression(this.lineNumber);
 	},
 	
-	createNewExpression: function() {
-	
+	createNewExpression: function(expression, start, end) {
+		var expr = new jsc.AST.NewExpression(this.lineNumber, expression);
+		this.setExceptionLocation(expr, start, end, end, false);
+
+		return expr;
 	},
 	
-	createNewExpressionWithArguments: function() {
-	
+	createNewExpressionWithArguments: function(expression, argumentList, start, divot, end) {
+		var expr = new jsc.AST.NewExpression(this.lineNumber, expression, argumentList);
+		this.setExceptionLocation(expr, divot, start, end);
+
+		return expr;
 	},
-	
-	createFunctionExpression: function() {
-	
+
+	createFunctionExpression: function(name, functionNode, parameterList, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
+		var expr = new jsc.AST.FunctionExpression(this.lineNumber, name, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameterList);
+
+		this.setStatementLocation(functionNode, bodyBeginLine, bodyEndLine);
+		this.functions.push(functionNode);
+
+		return expr;
 	},
-	
-	createFunctionCallExpression: function() {
-	
+
+	createFunctionCallExpression: function(expression, argumentList, start, divot, end) {
+		if(!expression.isLocation)
+			return new jsc.AST.ValueFunctionCallExpression(this.lineNumber, expression, argumentList, divot, divot - start, end - divot);
+
+		if(expression.isResolve)
+		{
+			if(expression.name === "eval")
+			{
+				this.features |= jsc.AST.CodeFeatureFlags.EVAL;
+				this.evalCount++;
+
+				return new jsc.AST.EvalFunctionCallExpression(this.lineNumber, argumentList, divot, divot - start, end - divot);
+			}
+
+			return new jsc.AST.ResolveFunctionCallExpression(this.lineNumber, expression.name, argumentList, divot, divot - start, end - divot);
+		}
+
+		if(expression.isBracketAccessor)
+		{
+			var bracketExpr = new jsc.AST.BracketFunctionCallExpression(this.lineNumber, expression.base, expression.subscript, argumentList, divot, divot - start, end - divot);
+			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
+
+			return bracketExpr;
+		}
+
+		if(expression.isDotAccessor)
+		{
+			var dotExpr = null;
+
+			if(expression.name === "call")
+				dotExpr = new jsc.AST.CallDotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+			else if(expression.name === "apply")
+				dotExpr = new jsc.AST.ApplyDotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+			else
+				dotExpr = new jsc.AST.DotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+
+			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
+		}
+
+		throw new Error("Invalid function call expression.");
 	},
 	
 	createArrayExpression: function(elements, elisions) {
-	
+		var isOptional = !jsc.Utils.isNull(elisions);
+
+		elisions = jsc.Utils.valueOrDefault(elisions, 0);
+
+		if(elisions > 0)
+			this.constantCount++;
+
+		return new jsc.AST.ArrayExpression(this.lineNumber, elements, elisions, isOptional);
 	},
 	
 	createObjectLiteralExpression: function(properties) {
 		return new jsc.AST.ObjectLiteralExpression(this.lineNumber, properties);
 	},
-	
-	createBracketAccessorExpression: function() {
-	
+
+	createBracketAccessorExpression: function(base, subscript, subscriptHasAssignments, start, divot, end) {
+		var expr = new jsc.AST.BracketAccessorExpression(this.lineNumber, base, subscript, subscriptHasAssignments);
+		this.setExceptionLocation(expr, divot, start, end);
+
+		return expr;
 	},
-	
-	createDotAccessorExpression: function() {
-	
+
+	createDotAccessorExpression: function(propertyName, baseExpression, start, divot, end) {
+		var expr = new jsc.AST.DotAccessorExpression(this.lineNumber, propertyName, baseExpression);
+		this.setExceptionLocation(expr, divot, start, end);
+
+		return expr;
 	},
 	
 	createStringExpression: function(value) {
@@ -432,56 +575,265 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.StringExpression(this.lineNumber, value);
 	},
 	
-	createNumberExpression: function(value) {
-	
+	createNumberExpression: function(value, isConstant) {
+		isConstant = jsc.Utils.valueOrDefault(isConstant, true);
+
+		if(isConstant)
+			this.constantCount++;
+
+		return new jsc.AST.NumberExpression(this.lineNumber, value);
 	},
 	
 	createNullExpression: function() {
-	
+		this.constantCount++;
+
+		return new jsc.AST.NullExpression(this.lineNumber);
 	},
 	
 	createBooleanExpression: function(value) {
-	
+		this.constantCount++;
+
+		return new jsc.AST.BooleanExpression(this.lineNumber, value);
 	},
-	
-	createRegExpExpression: function() {
-	
+
+	createRegExpExpression: function(pattern, flags, start) {
+		var expr = new jsc.AST.RegExExpression(this.lineNumber, pattern, flags);
+		var size = pattern.length + 2; // +2 for the two '/' chars.
+
+		this.setExceptionLocation(expr, start + size, start, start + size);
+
+		return expr;
 	},
 	
 	createCommaExpression: function(expr1, expr2) {
 		return new jsc.AST.CommaExpression(this.lineNumber, expr1, expr2);
 	},
-	
-	
+
+	createBitwiseExpression: function(opCode, leftExpression, rightExpression, rightHasAssignments) {
+		switch(opCode)
+		{
+			case jsc.AST.OpCode.BITWISE_AND:
+				return new jsc.AST.BitwiseAndExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+			case jsc.AST.OpCode.BITWISE_OR:
+				return new jsc.AST.BitwiseOrExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+			case jsc.AST.OpCode.BITWISE_XOR:
+				return new jsc.AST.BitwiseXOrExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+			default:
+				throw new Error("Invalid bitwise operation.");
+		}
+	},
+
+	createDivideExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		leftExpression = this.stripUnaryPlusExpression(leftExpression);
+		rightExpression = this.stripUnaryPlusExpression(rightExpression);
+
+		return new jsc.AST.DivideExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createMultiplyExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		leftExpression = this.stripUnaryPlusExpression(leftExpression);
+		rightExpression = this.stripUnaryPlusExpression(rightExpression);
+
+		return new jsc.AST.MultiplyExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createSubtractExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		leftExpression = this.stripUnaryPlusExpression(leftExpression);
+		rightExpression = this.stripUnaryPlusExpression(rightExpression);
+
+		return new jsc.AST.SubtractExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createAddExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.AddExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createModExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		leftExpression = this.stripUnaryPlusExpression(leftExpression);
+		rightExpression = this.stripUnaryPlusExpression(rightExpression);
+
+		return new jsc.AST.ModulusExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createLeftShiftExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.LeftShiftExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createRightShiftExpression: function(leftExpression, rightExpression, rightHasAssignments, asUnsigned) {
+		if(asUnsigned)
+			return new jsc.AST.RightShiftUnsignedExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+
+		return new jsc.AST.RightShiftExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createLessThanExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.LessThanExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createLessThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.LessThanOrEqualExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createGreaterThanExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.GreaterThanExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createGreaterThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+		return new jsc.AST.GreaterThanOrEqualExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	},
+
+	createBinaryExpression: function(operatorTokenKind, leftOp, rightOp) {
+		var lhsExpr = leftOp.expression;
+		var rhsExpr = rightOp.expression;
+		var rhsHasAssignment = rightOp.info.hasAssignments;
+
+		switch(operatorTokenKind)
+		{
+			case jsc.Token.Kind.AND:
+				return new jsc.AST.LogicalExpression(this.lineNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.AND);
+
+			case jsc.Token.Kind.OR:
+				return new jsc.AST.LogicalExpression(this.lineNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.OR);
+
+			case jsc.Token.Kind.BITWISE_AND:
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_AND, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.BITWISE_OR:
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_OR, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.BITWISE_XOR:
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_XOR, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.DIV:
+				return this.createDivideExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.MULT:
+				return this.createMultiplyExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.MINUS:
+				return this.createSubtractExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.PLUS:
+				return this.createAddExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.MOD:
+				return this.createModExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.LSHIFT:
+				return this.createLeftShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.RSHIFT:
+				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, false);
+
+			case jsc.Token.Kind.URSHIFT:
+				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, true);
+
+			case jsc.Token.Kind.EQUAL_EQUAL:
+				return new jsc.AST.EqualExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.NOT_EQUAL:
+				return new jsc.AST.NotEqualExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.STRICT_EQUAL:
+				return new jsc.AST.EqualStrictExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.STRICT_NOT_EQUAL:
+				return new jsc.AST.NotEqualStrictExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.LESS:
+				return this.createLessThanExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.LESS_EQUAL:
+				return this.createLessThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.GREATER:
+				return this.createGreaterThanExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.GREATER_EQUAL:
+				return this.createGreaterThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+
+			case jsc.Token.Kind.IN:
+			{
+				var inExpr = new jsc.AST.InExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				this.setExceptionLocation(inExpr, rightOp.info.start, leftOp.info.start, rightOp.info.end);
+
+				return inExpr;
+			}
+			case jsc.Token.Kind.INSTANCEOF:
+			{
+				var instanceofExpr = new jsc.AST.InstanceOfExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				this.setExceptionLocation(instanceofExpr, rightOp.info.start, leftOp.info.start, rightOp.info.end);
+
+				return instanceofExpr;
+			}
+			default:
+				throw new Error("Unknown binary expression operation.");
+		}
+	},
+
+
+	//=============================================================================================
+	// CREATE LIST NODES
+	//=============================================================================================
+
 	createParameterList: function(name, list) {
-	
+		return new jsc.AST.ParameterListNode(name, list);
 	},
 	
-	createArgumentsList: function(arguments, expression) {
-	
+	createArgumentsList: function(expression, list) {
+		return new jsc.AST.ArgumentListNode(this.lineNumber, expression, list);
 	},
 	
-	createArrayElementList: function(expression, elisions, elements) {
-	
+	createArrayElementList: function(expression, elisions, list) {
+		return new jsc.AST.ArrayElementList(elisions, expression, list);
 	},
 	
 	createPropertyList: function(propertyNode, propertyList) {
-	
+		return new jsc.AST.PropertyListNode(this.lineNumber, propertyNode, propertyList);
 	},
 	
 	createProperty: function(propertyName, expression, flags) {
-	
+		if(jsc.Utils.isString(propertyName) && expression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
+			expression.functionNode.inferredName = propertyName;
+
+		return new jsc.AST.PropertyNode(propertyName, flags, expression);
 	},
-	
-	createGetterOrSetterProperty: function(name, flags, parameters, functionNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
-	
+
+	createGetterOrSetterProperty: function(propertyName, flags, parameters, functionNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
+		if(jsc.Utils.isString(propertyName))
+			functionNode.inferredName = propertyName;
+
+		this.setStatementLocation(functionNode, bodyBeginLine, bodyEndLine);
+
+		return new jsc.AST.PropertyNode(
+			propertyName,
+			flags,
+			new jsc.AST.FunctionExpression(this.lineNumber, null, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameters));
 	},
-	
-	
-	combineCommaExpressions: function() {
-	
+
+
+
+	//=============================================================================================
+	// CONTEXT STATE / UTILS
+	//=============================================================================================
+
+	combineCommaExpressions: function(list, initExpression) {
+		if(jsc.Utils.isNull(list))
+			return initExpression;
+
+		if(list.kind === jsc.AST.NodeKind.COMMA)
+		{
+			list.expressions.push(initExpression);
+			return list;
+		}
+
+		return new jsc.AST.CommaExpression(this.lineNumber, list, initExpression);
 	},
-	
+
+	stripUnaryPlusExpression: function(expression) {
+		return (expression.kind === jsc.AST.NodeKind.UNARY_PLUS ? expression.expression : expression);
+	},
+
 	addVariable: function(name, flags) {
 		if(name === "arguments")
 			this.features |= jsc.AST.CodeFeatureFlags.ARGUMENTS;
@@ -497,9 +849,9 @@ jsc.AST.Context = Object.define({
 		this.assignmentStack.push(new jsc.AST.AssignmentInfo(expr, start, divot, count, op));
 	},
 	
-	pushBinaryOperand: function(state, expr, start, lhs, rhs, hasAssignments) {
+	pushBinaryOperand: function(state, expr, start, divot, end, hasAssignments) {
 		state.operandDepth++;
-		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(expr, new jsc.AST.BinaryOperationInfo(start, lhs, rhs, hasAssignments)));
+		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(expr, new jsc.AST.BinaryOperationInfo(start, divot, end, hasAssignments)));
 	},
 	
 	popBinaryOperand: function() {
@@ -508,9 +860,9 @@ jsc.AST.Context = Object.define({
 		return operand.expression;
 	},
 	
-	pushBinaryOperation: function(state, op, precedence) {
+	pushBinaryOperation: function(state, operatorTokenKind, precedence) {
 		state.operatorDepth++;
-		this.binaryOperatorStack.push([op, precedence]);
+		this.binaryOperatorStack.push([operatorTokenKind, precedence]);
 	},
 	
 	popBinaryOperation: function(operationState) {
@@ -544,10 +896,12 @@ jsc.AST.Context = Object.define({
 		statement.endLine = endLine;
 	},
 
-	setExceptionLocation: function(throwableNode, start, divot, end) {
+	setExceptionLocation: function(throwableNode, divot, start, end, adjustValues) {
+		adjustValues = jsc.Utils.valueOrDefault(adjustValues, true);
+
 		throwableNode.exceptionDivot = divot;
-		throwableNode.exceptionStartPosition = divot - start;
-		throwableNode.exceptionEndPosition = end - divot;
+		throwableNode.exceptionStartPosition = (adjustValues ? divot - start : start);
+		throwableNode.exceptionEndPosition = (adjustValues ? end - divot : end);
 	}
 });
 
@@ -562,7 +916,7 @@ jsc.AST.Node = Object.define({
 		this.kind = jsc.Utils.valueOrDefault(kind, jsc.AST.NodeKind.UNKNOWN);
 		this.lineNumber = jsc.Utils.valueOrDefault(lineNumber, 1);
 	},
-	
+
 	get isThis() {
 		return (this.kind === jsc.AST.NodeKind.THIS);
 	},
@@ -601,9 +955,25 @@ jsc.AST.Node = Object.define({
 	
 	get isDotAccessor() {
 		return (this.kind === jsc.AST.NodeKind.DOT_ACCESSOR);
+	},
+
+	toString: function() {
+		for(var kind in jsc.AST.NodeKind)
+		{
+			if(jsc.AST.NodeKind.hasOwnProperty(kind) && jsc.AST.NodeKind[kind] === this.kind)
+				return kind;
+		}
+
+		return "UNKNOWN";
 	}
 });
 
+
+
+
+//=============================================================================================
+// EXPRESSION CLASSES
+//=============================================================================================
 
 /**
  * The base class for all language expressions.
@@ -756,12 +1126,12 @@ jsc.AST.NullExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ArrayExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, element, elision) {
+	initialize: function($super, lineNumber, elements, elision, isOptional) {
 		$super(jsc.AST.NodeKind.ARRAY, lineNumber);
 		
-		this.element = jsc.Utils.valueOrDefault(element, null);
+		this.elements = jsc.Utils.valueOrDefault(elements, null);
 		this.elision = jsc.Utils.valueOrDefault(elision, 0);
-		this.isOptional = jsc.Utils.isNull(elision, false);
+		this.isOptional = jsc.Utils.valueOrDefault(isOptional, false);
 	}
 });
 
@@ -1610,6 +1980,11 @@ jsc.AST.CallDotFunctionCallExpression = Object.define(jsc.AST.DotFunctionCallExp
 
 
 
+
+//=============================================================================================
+// STATEMENT CLASSES
+//=============================================================================================
+
 /**
  * The base class for all language statements.
  *
@@ -2007,6 +2382,11 @@ jsc.AST.Script = Object.define(jsc.AST.ScopedStatement, {
 });
 
 
+
+//=============================================================================================
+// LIST NODE CLASSES
+//=============================================================================================
+
 /**
  * Represents a list of arguments.
  *
@@ -2114,7 +2494,6 @@ jsc.AST.SwitchClauseListNode = Object.define({
 });
 
 
-
 /**
  * Represents a list of elements within an array.
  *
@@ -2130,6 +2509,8 @@ jsc.AST.ArrayElementList = Object.define({
 			nextEl.nextElement = this;
 	}
 });
+
+
 
 
 /**
@@ -2158,6 +2539,7 @@ jsc.AST.LabelInfo = Object.define({
 		this.end = end;
 	}
 });
+
 
 /**
  * Represents the type of value that an expression will most likely
@@ -2243,6 +2625,7 @@ Object.extend(jsc.AST.ExpressionResultKind, {
 	}
 });
 
+
 /** @class */
 jsc.AST.AssignmentInfo = Object.define({
 	initialize: function(expr, start, divot, count, op) {
@@ -2253,6 +2636,7 @@ jsc.AST.AssignmentInfo = Object.define({
 		this.op = op;
 	}
 });
+
 
 /** @class */
 jsc.AST.BinaryOperationInfo = Object.define({
@@ -2266,7 +2650,7 @@ jsc.AST.BinaryOperationInfo = Object.define({
 
 Object.extend(jsc.AST.BinaryOperationInfo, {
 	FromBinaryOperations: function(lhs, rhs) {
-		var info = new BinaryOperationInfo();
+		var info = new jsc.AST.BinaryOperationInfo();
 		info.start = lhs.start;
 		info.divot = rhs.start;
 		info.end = rhs.end;
