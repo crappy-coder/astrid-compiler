@@ -10,13 +10,14 @@ jsc.Token = Object.define({
 	}
 });
 
+jsc.Token.IN_PRECEDENCE 	= 0x04;
+jsc.Token.PRECEDENCE 		= 0x08;
+jsc.Token.PRECEDENCE_MASK 	= 0x0F << jsc.Token.PRECEDENCE;
+jsc.Token.UNARY 			= 0x40;
+jsc.Token.KEYWORD 			= 0x80;
+
 Object.extend(jsc.Token, {
-	IN_PRECEDENCE: 0x04,
-	PRECEDENCE: 0x08,
-	PRECEDENCE_MASK: 0x0F << jsc.Token.PRECEDENCE,
-	UNARY: 0x40,
-	KEYWORD: 0x80,
-	
+
 	getName: function(kind) {
 		var kinds = jsc.Token.Kind;
 		var i = 0;

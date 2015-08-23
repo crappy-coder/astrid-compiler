@@ -8,31 +8,44 @@
  *
  ****************************************************************************/
  
- /*
-	var a1 = [0,1,2,,4];	// length=5
-	var a2 = [0,,];			// length=2
-	var a3 = [,];			// length=1
-	var a4 = [,,];			// length=2
-	var a5 = [,1,2,3];		// length=4
-	var a6 = [,1,2,3,];		// length=4
-	var a7 = [0,1,,,4];		// length=5
- */
+var obj = new Object();
+obj.A = function() { return 1; }
+
+function B() {
+	return 2;
+}
  
-var v1 = 0;
-var v2 = 1;
-var v3 = "a";
-var v4 = "b";
-var a1 = [];
-var a2 = [,];
-var a3 = [,,];
-var a4 = [0];
-var a5 = [0,1];
-var a6 = [0,1,2,,4];
-var a7 = [,1,2,3,4];
-var a8 = [0,1,2,3,];
-var a9 = [0,"a"];
-var a10 = ["a", "b"];
-var a11 = [0, v1, 1, v2];
-var a12 = [v3];
-var a13 = [v3, v4];
-var a14 = [v1, v3, v2, v4];
+function C() {
+	return function() { return 3; }
+}
+
+function D() {
+	var f = function foo() {
+		return 4;
+	}
+	
+	return f();
+}
+
+var a1 = obj.A();
+var a2 = obj["A"]();
+var b = B();
+var c = C()();
+var d = D();
+
+
+function Employee(a, b, c) {
+	var y = 2;
+
+	this.x = 1;
+}
+
+var e = new Employee(1, 2, 3);
+var x = e.x;
+
+function add(x, y)
+{
+	return x + y;
+}
+
+var a = add(1, 2);

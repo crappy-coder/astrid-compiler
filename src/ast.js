@@ -268,7 +268,7 @@ jsc.AST.Context = Object.define({
 	createAssignmentExpression: function(expression, initialCount, currentCount, lastTokenEnd) {
 		var info = this.assignmentStack[this.assignmentStack.length-1];
 		var expr = this.createAssignment(info.op, info.expression, expression, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd);
-		
+
 		this.assignmentStack.pop();
 		
 		return expr;
@@ -283,7 +283,7 @@ jsc.AST.Context = Object.define({
 
 
 		// resolve expression
-		if(left.isResolve)
+		if(leftExpression.isResolve)
 		{
 			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
 			{
@@ -301,7 +301,7 @@ jsc.AST.Context = Object.define({
 
 
 		// bracket expression
-		if(left.isBracketAccessor)
+		if(leftExpression.isBracketAccessor)
 		{
 			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
 				return new jsc.AST.AssignBracketExpression(this.lineNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
@@ -535,6 +535,8 @@ jsc.AST.Context = Object.define({
 				dotExpr = new jsc.AST.DotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
 
 			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
+
+			return dotExpr;
 		}
 
 		throw new Error("Invalid function call expression.");
@@ -767,7 +769,8 @@ jsc.AST.Context = Object.define({
 				return instanceofExpr;
 			}
 			default:
-				throw new Error("Unknown binary expression operation.");
+				return null;
+				//throw new Error("Unknown binary expression operation. Operation Kind='" + jsc.Token.getName(operatorTokenKind) + "'.");
 		}
 	},
 
@@ -851,6 +854,7 @@ jsc.AST.Context = Object.define({
 	
 	pushBinaryOperand: function(state, expr, start, divot, end, hasAssignments) {
 		state.operandDepth++;
+
 		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(expr, new jsc.AST.BinaryOperationInfo(start, divot, end, hasAssignments)));
 	},
 	
@@ -873,7 +877,7 @@ jsc.AST.Context = Object.define({
 		
 		if(operationState.operandDepth < 0)
 			throw new Error("Not enough binary operands on the stack.");
-			
+
 		this.binaryOperandStack.length -= 2;
 		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(this.createBinaryExpression(this.binaryOperatorStack[this.binaryOperatorStack.length-1][0], lhs, rhs), new jsc.AST.BinaryOperationInfo.FromBinaryOperations(lhs.info, rhs.info)));
 		
@@ -2573,19 +2577,21 @@ jsc.AST.ExpressionResultKind = Object.define({
 	}
 });
 
+jsc.AST.ExpressionResultKind.INT32 	= 0x01;
+jsc.AST.ExpressionResultKind.NUMBER = 0x04;
+jsc.AST.ExpressionResultKind.STRING = 0x08;
+jsc.AST.ExpressionResultKind.NULL 	= 0x10;
+jsc.AST.ExpressionResultKind.BOOL 	= 0x20;
+jsc.AST.ExpressionResultKind.OTHER 	= 0x40;
+jsc.AST.ExpressionResultKind.BITS 	= (
+	jsc.AST.ExpressionResultKind.NUMBER |
+	jsc.AST.ExpressionResultKind.STRING |
+	jsc.AST.ExpressionResultKind.NULL |
+	jsc.AST.ExpressionResultKind.BOOL |
+	jsc.AST.ExpressionResultKind.OTHER);
+
 Object.extend(jsc.AST.ExpressionResultKind, {
-	INT32	: 0x01,
-	NUMBER	: 0x04,
-	STRING	: 0x08,
-	NULL	: 0x10,
-	BOOL	: 0x20,
-	OTHER	: 0x40,
-	BITS	: ( jsc.AST.ExpressionResultKind.NUMBER |
-				jsc.AST.ExpressionResultKind.STRING |
-				jsc.AST.ExpressionResultKind.NULL 	|
-				jsc.AST.ExpressionResultKind.BOOL 	|
-				jsc.AST.ExpressionResultKind.OTHER),
-	
+
 	ForAdd: function(lhs, rhs) {
 		if(lhs.isNumber && rhs.isNumber)
 			return jsc.AST.ExpressionResultKind.Number;

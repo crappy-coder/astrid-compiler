@@ -457,14 +457,14 @@ jsc.Parser = Object.define({
 			this.failWhenFalseInStrictMode(this.declareVariable(name), "Cannot declare a variable named '" + name + "' in strict mode.");
 			
 			context.addVariable(name, (hasInitializer || (!this.state.allowsIn && this.match(jsc.Token.Kind.IN))) ? jsc.AST.VariableFlags.HAS_INITIALIZER : jsc.AST.VariableFlags.NONE);
-			
+
 			if(hasInitializer)
 			{
 				initBegin = this.tokenBegin;
 				varDivot = this.tokenBegin + 1;
 				
 				this.next();
-				
+
 				initialAssignmentCount = this.state.assignmentCount;
 				initializer = this.parseAssignment(context);
 				initEnd = this.lastTokenEnd;
@@ -1286,12 +1286,12 @@ jsc.Parser = Object.define({
 		var hasAssignment = false;
 		var op = null;
 		var lhs = this.parseConditional(context);
-		
+
 		this.failWhenNull(lhs);
 		
 		if(initialNonLHSCount !== this.state.nonLHSCount)
 			return lhs;
-		
+
 		loop:
 		while(true)
 		{
@@ -1336,7 +1336,7 @@ jsc.Parser = Object.define({
 				default:
 					break loop;
 			}
-			
+
 			this.state.nonTrivialExprCount++;
 			hasAssignment = true;
 			
@@ -1366,7 +1366,7 @@ jsc.Parser = Object.define({
 		
 		if(hasAssignment)
 			this.state.nonLHSCount++;
-			
+
 		while(assignmentDepth > 0)
 		{
 			lhs = context.createAssignmentExpression(lhs, initialAssignmentCount, this.state.assignmentCount, this.lastTokenEnd);
@@ -1419,7 +1419,7 @@ jsc.Parser = Object.define({
 			context.pushBinaryOperand(operationState, currentExpr, beginColumn, this.lastTokenEnd, this.lastTokenEnd, initialAssignmentCount !== this.state.assignmentCount);
 			
 			precedence = this.getBinaryOperatorPrecedence(this.tok.kind);
-			
+
 			if(precedence === 0)
 				break;
 				
@@ -1427,9 +1427,9 @@ jsc.Parser = Object.define({
 			
 			this.state.nonTrivialExprCount++;
 			this.state.nonLHSCount++;
-			
+
 			this.next();
-			
+
 			while(operationState.operatorDepth > 0 && context.precedenceIsLowerThanOperatorStack(precedence))
 			{
 				context.popBinaryOperation(operationState);
@@ -1437,7 +1437,7 @@ jsc.Parser = Object.define({
 
 			context.pushBinaryOperation(operationState, operatorToken, precedence);
 		}
-		
+
 		while(operationState.operatorDepth > 0)
 		{
 			context.popBinaryOperation(operationState);
@@ -1476,7 +1476,8 @@ jsc.Parser = Object.define({
 						requiresLExpression = true;
 						break;
 					default:
-						this.failWhenTrue(requiresLExpression)
+						this.failWhenTrue(requiresLExpression);
+						break;
 				}
 			}
 			
@@ -1755,7 +1756,7 @@ jsc.Parser = Object.define({
 				return context.createBooleanExpression(this.tok.kind === jsc.Token.Kind.TRUE);
 			}
 			case jsc.Token.Kind.DIVIDE_EQUAL:
-			case jsc.Token.Kind.DIVIDE:
+			case jsc.Token.Kind.DIV:
 			{
 				// regular expression
 				var patternPrefix = (this.match(jsc.Token.Kind.DIVIDE_EQUAL) ? '=' : null);
@@ -2216,7 +2217,7 @@ jsc.Parser = Object.define({
 			this.next();
 			return true;
 		}
-		
+
 		return this.allowAutomaticSemicolon();
 	},
 	
@@ -2516,11 +2517,11 @@ jsc.ParserScope = Object.define({
 	},
 
 	get canBreak() {
-		return (this.loopDepth > 0 || this.switchDepth > 0);
+		return (this.isInLoop || this.switchDepth > 0);
 	},
 
 	get canContinue() {
-		return (this.loopDepth > 0);
+		return this.isInLoop;
 	},
 	
 	get capturedVariables() {		
@@ -2615,7 +2616,7 @@ jsc.ParserScope = Object.define({
 	},
 	
 	useVariable: function(name, isEval) {
-		this.usesEval |= isEval;
+		this.usesEval = (this.usesEval || isEval);
 		this.usedVariables.set(name);
 	},
 	

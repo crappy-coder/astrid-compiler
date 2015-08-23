@@ -116,13 +116,13 @@ jsc.Lexer = Object.define({
 	// gets whether or not the next token is a colon
 	get isNextTokenColon() {
 
-		while(this.state.position < this.state.end)
+		while(this.position < this.state.end)
 		{
-			var nextChar = this.peek(this.state.position);
+			var nextChar = this.peek(0);
 
 			if(jsc.TextUtils.isWhitespace(nextChar) || jsc.TextUtils.isLineTerminator(nextChar))
 			{
-				this.state.position++;
+				this.position++;
 				continue;
 			}
 
