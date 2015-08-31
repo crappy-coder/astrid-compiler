@@ -6,20 +6,13 @@
 
 module.exports = (function(slice) {
 
-	return {
-		version: "0.1.0",
-		Create: create
-	};
-
-  /* Based on Alex Arnell's inheritance implementation. */
-
-	function subclass() {};
-
 	function create() {
+		function subclass() {}
+
 		var parent = null;
 		var properties = actualArray(arguments);
 		
-		if (typeof properties[0] == "function")
+		if (typeof properties[0] === "function")
 			parent = properties.shift();
   
 		function klass() {
@@ -28,11 +21,11 @@ module.exports = (function(slice) {
 	
 		klass.superclass = parent;
 		klass.subclasses = [];
-		klass["__includeMembers"] = includeMembers;
+		klass.__includeMembers = includeMembers;
 
 		if (parent) {
 			subclass.prototype = parent.prototype;
-			klass.prototype = new subclass;
+			klass.prototype = new subclass();
 			parent.subclasses.push(klass);
 		}
 
@@ -59,10 +52,12 @@ module.exports = (function(slice) {
 
 			if(ancestor && value && (typeof value === "function" && argumentNames(value)[0] === "$super")) {
 				var method = value;
-				
+
+				/* jshint ignore:start */
 				value = wrap((function(m) {
 					return function() { return ancestor[m].apply(this, arguments); };
 				})(property), method);
+				/* jshint ignore:end */
 
 				value.valueOf = method.valueOf.bind(method);
 				value.toString = method.toString.bind(method);
@@ -116,7 +111,12 @@ module.exports = (function(slice) {
 		.replace(/\/\/.*?[\r\n]|\/\*(?:.|[\r\n])*?\*\//g, '')
 		.replace(/\s+/g, '').split(',');
 		
-		return names.length == 1 && !names[0] ? [] : names;
+		return names.length === 1 && !names[0] ? [] : names;
 	}
+
+	return {
+		version: "0.1.0",
+		Create: create
+	};
 
 }(Array.prototype.slice));

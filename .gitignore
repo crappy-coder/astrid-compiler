@@ -3,6 +3,7 @@ build-temp
 coverage
 lib-cov
 logs
+/scripts/playground-writer-output.js
 node_modules
 pids
 

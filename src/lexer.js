@@ -7,12 +7,14 @@ jsc.Lexer = Object.define({
 
 		this.state = {
 			lastTokenKind: jsc.Token.Kind.UNKNOWN,
-			lastLineNumber: 0,
+			lastLineNumber: 1,
 			position: sourceCode.offsetBegin,
 			end: sourceCode.offsetEnd,
 			lineNumber: sourceCode.startLine,
 			linePosition: 0,
 			lastLinePosition: 0,
+			columnNumber: 0,
+			lastColumnNumber: 0,
 			isReparsing: false,
 			isLineBegin: true,
 			hasLineTerminator: false,
@@ -26,6 +28,7 @@ jsc.Lexer = Object.define({
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
 		this.chLast = null;
+		this.comments = [];
 	},
 
 	// gets or sets whether or not to output debugging information
@@ -56,6 +59,22 @@ jsc.Lexer = Object.define({
 	},
 	set lineNumber(value) {
 		this.state.lineNumber = value;
+	},
+
+	// get or sets the current column number
+	get columnNumber() {
+		return this.state.columnNumber;
+	},
+	set columnNumber(value) {
+		this.state.columnNumber = value;
+	},
+
+	// gets or sets the last column number
+	get lastColumnNumber() {
+		return this.state.lastColumnNumber;
+	},
+	set lastColumnNumber(value) {
+		this.state.lastColumnNumber = value;
 	},
 	
 
@@ -189,7 +208,10 @@ jsc.Lexer = Object.define({
 				if(this.isEnd)
 					return jsc.Token.Kind.EOF;
 
+				this.columnNumber = this.state.position - this.state.linePosition;
+
 				tok.begin = this.position;
+				tok.beginLine = this.lineNumber;
 
 				switch(jsc.Lexer.getCharacterKind(this.chCode))
 				{
@@ -218,13 +240,6 @@ jsc.Lexer = Object.define({
 					case jsc.Lexer.CharacterKind.LESS:
 					{
 						this.next();
-
-						// start of a www line comment '<!--'
-						if(this.ch === '!' && this.peek(1) === '-' && this.peek(2) === '-')
-						{
-							inSingleLineComment = true;
-							break;
-						}
 
 						if(this.ch === '<')
 						{
@@ -345,8 +360,8 @@ jsc.Lexer = Object.define({
 						{
 							this.next();
 
-							if(this.parseMultilineComment())
-								continue loop;
+							if(this.parseMultilineComment(tok))
+								continue;
 
 							hasError = true;
 							this.setError("Multiline comment was not properly closed.");
@@ -391,19 +406,10 @@ jsc.Lexer = Object.define({
 					{
 						this.next();
 
+						// '--'
 						if(this.ch === '-')
 						{
 							this.next();
-
-							// '-->' www end comment
-							if(this.ch === '>' && this.state.isLineBegin)
-							{
-								this.next();
-								inSingleLineComment = true;
-								break;
-							}
-
-							// '--'
 							tokKind = (!this.hasLineTerminator ? jsc.Token.Kind.MINUSMINUS : jsc.Token.Kind.MINUSMINUS_AUTO);
 							break loop;
 						}
@@ -747,14 +753,9 @@ jsc.Lexer = Object.define({
 
 				if(inSingleLineComment)
 				{
-					while(!jsc.TextUtils.isLineTerminator(this.ch))
-					{
-						if(this.isEnd)
-							return jsc.Token.Kind.EOF;
+					if(!this.parseComment(tok))
+						return jsc.Token.Kind.EOF;
 
-						this.next();
-					}
-					
 					this.nextLine();
 
 					this.state.isLineBegin = true;
@@ -771,8 +772,9 @@ jsc.Lexer = Object.define({
 				}
 			}
 
-		tok.line = this.lineNumber;
+		tok.column = this.columnNumber;
 		tok.end = this.position;
+		tok.endLine = this.lineNumber;
 
 		if(hasError)
 			return jsc.Token.Kind.ERROR;
@@ -788,6 +790,7 @@ jsc.Lexer = Object.define({
 
 	nextIdentifier: function(tok, inStrictMode) {
 		var startOffset = this.position;
+		var startLine = this.lineNumber;
 
 		if(this.position >= this.state.end)
 		{
@@ -829,9 +832,11 @@ jsc.Lexer = Object.define({
 
 		this.appendString(startOffset, this.position - startOffset);
 
-		tok.line = this.lineNumber;
+		tok.column = this.columnNumber;
 		tok.begin = startOffset;
+		tok.beginLine = startLine;
 		tok.end = this.position;
+		tok.endLine = this.lineNumber;
 		tok.value = this.chBuffer.join("");
 
 		this.chBuffer = [];
@@ -1248,25 +1253,73 @@ jsc.Lexer = Object.define({
 		return true;
 	},
 
-	parseMultilineComment: function() {
+	parseComment: function(tok) {
+		var result = true;
+		var startOffset = this.position;
+		var commentValue = "";
+
+		while(!jsc.TextUtils.isLineTerminator(this.ch))
+		{
+			if(this.isEnd)
+			{
+				result = false;
+				break;
+			}
+
+			this.next();
+		}
+
+		// add the contents of the comment that come after the '//'
+		if(this.position !== startOffset)
+		{
+			for(var i = startOffset; i < this.position; i++)
+				commentValue += this.sourceBuffer.getChar(i);
+		}
+
+		this.comments.push(new jsc.Lexer.CommentInfo(commentValue, false, tok.begin, this.position, tok.beginLine, this.lineNumber, this.columnNumber));
+
+		return result;
+	},
+
+	parseMultilineComment: function(tok) {
+		var startPosition = this.position;
+
 		while(true)
 		{
+			// at end of comment? '*/'
 			while(this.ch === '*')
 			{
+				var endPosition = this.position;
+
 				this.next();
 
 				if(this.ch === '/')
 				{
+					var commentValue = "";
+
 					this.next();
+
+					// add the contents of the comment contained inside the '/*' and '*/'
+					if(endPosition !== startPosition)
+					{
+						for(var i = startPosition; i < endPosition; i++)
+							commentValue += this.sourceBuffer.getChar(i);
+					}
+
+					this.comments.push(new jsc.Lexer.CommentInfo(commentValue, true, tok.begin, this.position, tok.beginLine, this.lineNumber, this.columnNumber));
 					return true;
 				}
 			}
 
+			// end of file reached before finishing comment
 			if(this.isEnd)
 				return false;
 
+			// move to next character
 			if(!jsc.TextUtils.isLineTerminator(this.ch))
 				this.next();
+
+			// move to next line
 			else
 			{
 				this.nextLine();
@@ -1475,6 +1528,18 @@ jsc.Lexer = Object.define({
 	debugLog: function(msg /*, ... */) {
 		if(this.debugMode)
 			console.log(jsc.Utils.format.apply(null, arguments));
+	}
+});
+
+jsc.Lexer.CommentInfo = Object.define({
+	initialize: function(value, isMultiline, begin, end, beginLine, endLine, columnNumber) {
+		this.value = value;
+		this.isMultiline = isMultiline;
+		this.begin = begin;
+		this.end = end;
+		this.beginLine = beginLine;
+		this.endLine = endLine;
+		this.columnNumber = columnNumber;
 	}
 });
 

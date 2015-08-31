@@ -121,7 +121,7 @@ jsc.Utils = {
 		for(var a = args[i]; i < argsLen; a = args[++i]) {
 			str += " " + formatValue(a);
 		}
-		
+
 		return str;
 	},
 	

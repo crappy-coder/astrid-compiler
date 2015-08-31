@@ -28,18 +28,46 @@ Object.extend(jsc.TextSpan, {
 
 
 jsc.TextPosition = Object.define({
-	initialize: function(line, character) {
+	initialize: function(line, column) {
 		this.line = line;
-		this.character = character;	
+		this.column = column;
+	},
+
+	add: function(line, column) {
+		this.line += jsc.Utils.valueOrDefault(line, 0);
+		this.column += jsc.Utils.valueOrDefault(column, 0);
+	},
+
+	subtract: function(line, column) {
+		this.line -= jsc.Utils.valueOrDefault(line, 0);
+		this.column -= jsc.Utils.valueOrDefault(column, 0);
+	},
+
+	isEqualTo: function(other) {
+		return (this.line === other.line && this.column === other.column);
+	},
+
+	isGreaterThan: function(other) {
+		return (
+			(this.line >= other.line && this.column > other.column) ||
+			(this.column >= other.column && this.line > other.line));
+	},
+
+	isLessThan: function(other) {
+		return (
+			(this.line <= other.line && this.column < other.column) ||
+			(this.column <= other.column && this.line < other.line));
 	},
 	
 	toString: function() {
-		return jsc.Utils.format("%d,%d", this.line, this.character);
+		return jsc.Utils.format("%d,%d", this.line, this.column);
 	}
 });
 
 Object.extend(jsc.TextPosition, {
-	Zero: new jsc.TextPosition(0, 0)
+	get Zero() {
+		return new jsc.TextPosition(0, 0);
+	}
 });
 
 

@@ -9,6 +9,7 @@ var utils = require("./utils");
 ;(function() {
 	var jsc = {
 		AST: ast,
+		Generator: require("./generator"),
 		Lexer: lexer,
 		Parser: parser.Parser,
 		ParserScope: parser.ParserScope,
@@ -18,26 +19,20 @@ var utils = require("./utils");
 		TextSpan: text.TextSpan,
 		TextUtils: text.TextUtils,
 		Token: token,
-		Utils: utils
+		Utils: utils,
+		Optimizers: require("./optimizers"),
+		Writers: require("./writers")
 	};
 	
 	Object.extend(jsc, {
-		parse: function(source, debugMode) {
+		parse: function(source, callback, debugMode) {
 			var parser = new jsc.Parser(source, null, false);
 			var parserResult = null;
-			
+
 			parser.debugMode = jsc.Utils.valueOrDefault(debugMode, false);
 			parserResult = parser.parse();
-			
-			if(!debugMode && parser.hasError)
-			{
-				var err = new Error(parser.error);
-				err.name = "Parse Error";
-				
-				throw err;
-			}
 
-			return parserResult;
+			callback(parserResult, parser.hasError ? parser.error : null);
 		}
 	});
 	

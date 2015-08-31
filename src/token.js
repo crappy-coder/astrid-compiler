@@ -5,7 +5,9 @@ jsc.Token = Object.define({
 		this.kind = jsc.Token.Kind.UNKNOWN;
 		this.begin = 0;
 		this.end = 0;
-		this.line = 0;
+		this.beginLine = 0;
+		this.endLine = 0;
+		this.column = 0;
 		this.value = null;
 	}
 });
@@ -52,9 +54,9 @@ Object.extend(jsc.Token, {
 	//  KEY                     |  VALUE                                                        |    PRINTABLE NAME |
 	//--------------------------------------------------------------------------------------------------------------+
 		UNKNOWN					: [-1                                                           ,                ""],
-		
+
 	//  KEYWORDS
-		NULL					: [ 0 + keyword                                                 ,            "null"],
+		NULL					: [     keyword                                                 ,            "null"],
 		TRUE					: [ 1 + keyword                                                 ,            "true"],
 		FALSE					: [ 2 + keyword                                                 ,           "false"],
 		BREAK					: [ 3 + keyword                                                 ,           "break"],
@@ -83,7 +85,7 @@ Object.extend(jsc.Token, {
 		ELSE					: [26 + keyword                                                 ,            "else"],
 		
 	//  PUNCTUATORS
-		OPEN_BRACE				: [ 0 + punctuator                                              ,               "{"],
+		OPEN_BRACE				: [     punctuator                                              ,               "{"],
 		CLOSE_BRACE				: [ 1 + punctuator                                              ,               "}"],
 		OPEN_PAREN				: [ 2 + punctuator                                              ,               "("],
 		CLOSE_PAREN				: [ 3 + punctuator                                              ,               ")"],
@@ -114,7 +116,7 @@ Object.extend(jsc.Token, {
 		LAST_UNTAGGED			: [28 + punctuator                                              ,                ""],
 		
 	//  BINARY OPERATORS
-		OR						: [ 0 + ( 1 << precedence) | ( 1 << precedence_shift)           ,              "||"],
+		OR						: [     ( 1 << precedence) | ( 1 << precedence_shift)           ,              "||"],
 		AND						: [ 1 + ( 2 << precedence) | ( 2 << precedence_shift)           ,              "&&"],
 		BITWISE_OR				: [ 2 + ( 3 << precedence) | ( 3 << precedence_shift)           ,               "|"],
 		BITWISE_XOR				: [ 3 + ( 4 << precedence) | ( 4 << precedence_shift)           ,               "^"],
@@ -128,7 +130,7 @@ Object.extend(jsc.Token, {
 		LESS_EQUAL				: [11 + ( 7 << precedence) | ( 7 << precedence_shift)           ,              "<="],
 		GREATER_EQUAL			: [12 + ( 7 << precedence) | ( 7 << precedence_shift)           ,              ">="],
 		INSTANCEOF				: [13 + ( 7 << precedence) | ( 7 << precedence_shift) | keyword ,      "instanceof"],
-		IN						: [14 + ( 7 << precedence) | keyword                            ,              "in"],
+		IN						: [14 + ( 7 << precedence_shift) | keyword                      ,              "in"],
 		LSHIFT					: [15 + ( 8 << precedence) | ( 8 << precedence_shift)           ,              "<<"],
 		RSHIFT					: [16 + ( 8 << precedence) | ( 8 << precedence_shift)           ,              ">>"],
 		URSHIFT					: [17 + ( 8 << precedence) | ( 8 << precedence_shift)           ,             ">>>"],
@@ -139,7 +141,7 @@ Object.extend(jsc.Token, {
 		MOD						: [22 + (10 << precedence) | (10 << precedence_shift)           ,               "%"],
 
 	//  UNARY OPERATORS
-		PLUSPLUS				: [0 + unary                                                    ,              "++"],
+		PLUSPLUS				: [    unary                                                    ,              "++"],
 		PLUSPLUS_AUTO			: [1 + unary                                                    ,              "++"],
 		MINUSMINUS				: [2 + unary                                                    ,              "--"],
 		MINUSMINUS_AUTO			: [3 + unary                                                    ,              "--"],

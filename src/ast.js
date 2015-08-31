@@ -14,21 +14,21 @@ jsc.AST.Context = Object.define({
 	initialize: function(source, lexer) {
 		this.source = source;
 		this.lexer = lexer;
-		this.assignmentStack = [];
-		this.binaryOperandStack = [];
-		this.binaryOperatorStack = [];
-		this.unaryTokenStack = [];
-		this.evalCount = 0;
+		this.assignmentStack = [];		// element = jsc.AST.AssignmentInfo
+		this.binaryOperandStack = []; 	// element = jsc.AST.BinaryOperand
+		this.binaryOperatorStack = []; 	// element = [<operatorTokenKind>, <operatorPrecedence>]
+		this.unaryTokenStack = [];		// element = [<tokenKind>, <tokenBegin>, <tokenColumn>]
+		this.variableDecls = [];		// element = jsc.AST.VariableDeclaration
+		this.functions = [];			// element = jsc.AST.FunctionNode
 		this.features = jsc.AST.CodeFeatureFlags.NONE;
-		this.variableDecls = [];
-		this.functions = [];
+		this.evalCount = 0;
 		this.constantCount = 0;
 	},
 	
 	get lineNumber() {
 		return this.lexer.lastLineNumber;
 	},
-	
+
 	get lastUnaryTokenKind() {
 		return this.unaryTokenStack[this.unaryTokenStack.length-1][0];
 	},
@@ -37,158 +37,162 @@ jsc.AST.Context = Object.define({
 		return this.unaryTokenStack[this.unaryTokenStack.length-1][1];
 	},
 
+	get lastUnaryTokenColumn() {
+		return this.unaryTokenStack[this.unaryTokenStack.length-1][2];
+	},
+
 
 
 	//=============================================================================================
 	// CREATE STATEMENTS
 	//=============================================================================================
 	
-	createEmptyStatement: function() {
-		return new jsc.AST.EmptyStatement(this.lineNumber);
+	createEmptyStatement: function(columnNumber) {
+		return new jsc.AST.EmptyStatement(this.lineNumber, columnNumber);
 	},
-	
-	createExpressionStatement: function(expression, beginLine, endLine) {
-		var statement = new jsc.AST.ExpressionStatement(this.lineNumber, expression);
+
+	createExpressionStatement: function(expression, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.ExpressionStatement(this.lineNumber, columnNumber, expression);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createBlockStatement: function(statements, beginLine, endLine) {
-		var statement = new jsc.AST.BlockStatement(this.lineNumber, statements);
+	createBlockStatement: function(statements, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.BlockStatement(this.lineNumber, columnNumber, statements);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
 	createLabelStatement: function(labelInfo, statement) {
-		var labelStatement = new jsc.AST.LabelStatement(this.lineNumber, labelInfo.name, statement);
+		var labelStatement = new jsc.AST.LabelStatement(this.lineNumber, labelInfo.columnNumber, labelInfo.name, statement);
 		this.setExceptionLocation(labelStatement, labelInfo.end, labelInfo.begin, labelInfo.end);
 
 		return labelStatement;
 	},
 	
-	createVarStatement: function(expression, beginLine, endLine) {
+	createVarStatement: function(expression, beginLine, endLine, columnNumber) {
 		var statement = null;
 
 		if(jsc.Utils.isNull(expression))
-			statement = new jsc.AST.EmptyStatement(this.lineNumber);
+			statement = new jsc.AST.EmptyStatement(this.lineNumber, columnNumber);
 		else
-			statement = new jsc.AST.VarStatement(this.lineNumber, expression);
+			statement = new jsc.AST.VarStatement(this.lineNumber, columnNumber, expression);
 
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createConstStatement: function(expression, beginLine, endLine) {
-		var statement = new jsc.AST.ConstStatement(this.lineNumber, expression);
+	createConstStatement: function(expression, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.ConstStatement(this.lineNumber, columnNumber, expression);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createIfStatement: function(conditionExpression, trueStatement, falseStatement, beginLine, endLine) {
+	createIfStatement: function(conditionExpression, trueStatement, falseStatement, beginLine, endLine, columnNumber) {
 		var statement = null;
 
 		if(jsc.Utils.isNull(falseStatement))
-			statement = new jsc.AST.IfStatement(this.lineNumber, conditionExpression, trueStatement);
+			statement = new jsc.AST.IfStatement(this.lineNumber, columnNumber, conditionExpression, trueStatement);
 		else
-			statement = new jsc.AST.IfElseStatement(this.lineNumber, conditionExpression, trueStatement, falseStatement);
+			statement = new jsc.AST.IfElseStatement(this.lineNumber, columnNumber, conditionExpression, trueStatement, falseStatement);
 
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createWhileStatement: function(expression, statement, beginLine, endLine) {
-		var whileStatement = new jsc.AST.WhileStatement(this.lineNumber, expression, statement);
+	createWhileStatement: function(expression, statement, beginLine, endLine, columnNumber) {
+		var whileStatement = new jsc.AST.WhileStatement(this.lineNumber, columnNumber, expression, statement);
 		this.setStatementLocation(whileStatement, beginLine, endLine);
 
 		return whileStatement;
 	},
 	
-	createDoWhileStatement: function(expression, statement, beginLine, endLine) {
-		var doWhileStatement = new jsc.AST.DoWhileStatement(this.lineNumber, expression, statement);
+	createDoWhileStatement: function(expression, statement, beginLine, endLine, columnNumber) {
+		var doWhileStatement = new jsc.AST.DoWhileStatement(this.lineNumber, columnNumber, expression, statement);
 		this.setStatementLocation(doWhileStatement, beginLine, endLine);
 
 		return doWhileStatement;
 	},
 	
-	createForStatement: function(initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration, beginLine, endLine) {
-		var forStatement = new jsc.AST.ForStatement(this.lineNumber, initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration);
+	createForStatement: function(initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration, beginLine, endLine, columnNumber) {
+		var forStatement = new jsc.AST.ForStatement(this.lineNumber, columnNumber, initializeExpression, conditionExpression, iteratorExpression, statement, isFirstExpressionVarDeclaration);
 		this.setStatementLocation(forStatement, beginLine, endLine);
 
 		return forStatement;
 	},
 	
-	createForInStatement: function(leftExpression, rightExpression, statement, start, divot, end, beginLine, endLine) {
-		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, null, false, null, leftExpression, rightExpression, statement, 0, 0, 0);
+	createForInStatement: function(leftExpression, rightExpression, statement, start, divot, end, beginLine, endLine, columnNumber) {
+		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, columnNumber, null, false, null, leftExpression, rightExpression, statement, 0, 0, 0);
 		this.setExceptionLocation(forInStatement, divot, start, end);
 		this.setStatementLocation(forInStatement, beginLine, endLine);
 
 		return forInStatement;
 	},
 	
-	createForInStatementWithVarDecl: function(name, initializeExpression, expression, statement, start, divot, end, initBegin, initEnd, beginLine, endLine) {
-		var leftExpression = new jsc.AST.ResolveExpression(this.lineNumber, name, initBegin - (initBegin - start));
+	createForInStatementWithVarDecl: function(name, initializeExpression, expression, statement, start, divot, end, initBegin, initEnd, beginLine, endLine, columnNumber) {
+		var leftExpression = new jsc.AST.ResolveExpression(this.lineNumber, columnNumber, name, initBegin - (initBegin - start));
 
 		if(!jsc.Utils.isNull(initializeExpression))
 		{
-			initializeExpression = new jsc.AST.AssignResolveExpression(this.lineNumber, name, initializeExpression, true);
+			initializeExpression = new jsc.AST.AssignResolveExpression(this.lineNumber, columnNumber, name, initializeExpression, true);
 			initializeExpression.exceptionDivot = initBegin;
 			initializeExpression.exceptionStartPosition = initBegin - (initBegin - start);
 			initializeExpression.exceptionEndPosition = (initEnd - initBegin) - initBegin;
 		}
 
-		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, name, true, initializeExpression, leftExpression, expression, statement, 0, 0, 0);
+		var forInStatement = new jsc.AST.ForInStatement(this.lineNumber, columnNumber, name, true, initializeExpression, leftExpression, expression, statement, 0, 0, 0);
 		this.setExceptionLocation(forInStatement, divot+1, start, end);
 		this.setStatementLocation(forInStatement, beginLine, endLine);
 
 		return forInStatement;
 	},
 	
-	createContinueStatement: function(name, start, end, beginLine, endLine) {
-		var statement = new jsc.AST.ContinueStatement(this.lineNumber, name);
+	createContinueStatement: function(name, start, end, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.ContinueStatement(this.lineNumber, columnNumber, name);
 		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createBreakStatement: function(name, start, end, beginLine, endLine) {
-		var statement = new jsc.AST.BreakStatement(this.lineNumber, name);
+	createBreakStatement: function(name, start, end, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.BreakStatement(this.lineNumber, columnNumber, name);
 		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createReturnStatement: function(expression, start, end, beginLine, endLine) {
-		var statement = new jsc.AST.ReturnStatement(this.lineNumber, expression);
+	createReturnStatement: function(expression, start, end, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.ReturnStatement(this.lineNumber, columnNumber, expression);
 		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createThrowStatement: function(expression, start, end, beginLine, endLine) {
-		var statement = new jsc.AST.ThrowStatement(this.lineNumber, expression);
+	createThrowStatement: function(expression, start, end, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.ThrowStatement(this.lineNumber, columnNumber, expression);
 		this.setExceptionLocation(statement, end, start, end);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createDebuggerStatement: function(beginLine, endLine) {
-		var statement = new jsc.AST.DebuggerStatement(this.lineNumber);
+	createDebuggerStatement: function(beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.DebuggerStatement(this.lineNumber, columnNumber);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
 	},
 	
-	createTryStatement: function(exceptionVarName, tryStatement, catchStatement, finallyStatement, beginLine, endLine) {
-		var statement = new jsc.AST.TryStatement(this.lineNumber, exceptionVarName, tryStatement, catchStatement, finallyStatement);
+	createTryStatement: function(exceptionVarName, tryStatement, catchStatement, finallyStatement, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.TryStatement(this.lineNumber, columnNumber, exceptionVarName, tryStatement, catchStatement, finallyStatement);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		if(!jsc.Utils.isNull(catchStatement))
@@ -197,8 +201,8 @@ jsc.AST.Context = Object.define({
 		return statement;
 	},
 
-	createWithStatement: function(expression, statement, start, end, beginLine, endLine) {
-		var withStatement = new jsc.AST.WithStatement(this.lineNumber, expression, statement, end, end - start);
+	createWithStatement: function(expression, statement, start, end, beginLine, endLine, columnNumber) {
+		var withStatement = new jsc.AST.WithStatement(this.lineNumber, columnNumber, expression, statement, end, end - start);
 		this.setStatementLocation(withStatement, beginLine, endLine);
 
 		this.features |= jsc.AST.CodeFeatureFlags.WITH;
@@ -206,8 +210,8 @@ jsc.AST.Context = Object.define({
 		return withStatement;
 	},
 	
-	createSwitchStatement: function(expression, defaultClause, firstClauseList, secondClauseList, beginLine, endLine) {
-		var statement = new jsc.AST.SwitchStatement(this.lineNumber, expression, defaultClause, firstClauseList, secondClauseList);
+	createSwitchStatement: function(expression, defaultClause, firstClauseList, secondClauseList, beginLine, endLine, columnNumber) {
+		var statement = new jsc.AST.SwitchStatement(this.lineNumber, columnNumber, expression, defaultClause, firstClauseList, secondClauseList);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
@@ -217,12 +221,12 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.SwitchClauseListNode(expression, statements, tail);
 	},
 	
-	createInitialFunctionStatement: function(inStrictMode) {
-		return new jsc.AST.FunctionNode(this.lineNumber, inStrictMode);
+	createInitialFunctionStatement: function(inStrictMode, columnNumber) {
+		return new jsc.AST.FunctionNode(this.lineNumber, columnNumber, inStrictMode);
 	},
 	
-	createFunctionStatement: function(statements, variables, functions, capturedVariables, features, constantCount, openBracePosition, closeBracePosition, bodyBeginLine, hasReturnValue) {
-		var func = new jsc.AST.FunctionNode(this.lineNumber);
+	createFunctionStatement: function(statements, variables, functions, capturedVariables, features, constantCount, openBracePosition, closeBracePosition, bodyBeginLine, hasReturnValue, columnNumber) {
+		var func = new jsc.AST.FunctionNode(this.lineNumber, columnNumber);
 
 		func.features = features;
 		func.source = this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine);
@@ -245,9 +249,9 @@ jsc.AST.Context = Object.define({
 		return func;
 	},
 	
-	createFunctionDeclarationStatement: function(name, functionNode, parametersNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
+	createFunctionDeclarationStatement: function(name, functionNode, parametersNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine, columnNumber) {
 		var subSource = this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine);
-		var funcDecl = new jsc.AST.FunctionDeclarationStatement(this.lineNumber, name, functionNode, subSource, parametersNode);
+		var funcDecl = new jsc.AST.FunctionDeclarationStatement(this.lineNumber, columnNumber, name, functionNode, subSource, parametersNode);
 
 		this.setStatementLocation(functionNode, bodyBeginLine, bodyEndLine);
 
@@ -267,17 +271,17 @@ jsc.AST.Context = Object.define({
 
 	createAssignmentExpression: function(expression, initialCount, currentCount, lastTokenEnd) {
 		var info = this.assignmentStack[this.assignmentStack.length-1];
-		var expr = this.createAssignment(info.op, info.expression, expression, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd);
+		var expr = this.createAssignment(info.op, info.expression, expression, info.count !== initialCount, info.count !== currentCount, info.start, info.divot+1, lastTokenEnd, info.columnNumber);
 
 		this.assignmentStack.pop();
 		
 		return expr;
 	},
 	
-	createAssignment: function(op, leftExpression, rightExpression, leftHasAssignments, rightHasAssignments, start, divot, end) {
+	createAssignment: function(op, leftExpression, rightExpression, leftHasAssignments, rightHasAssignments, start, divot, end, columnNumber) {
 
 		if(!leftExpression.isLocation)
-			return new jsc.AST.AssignErrorExpression(this.lineNumber, leftExpression, rightExpression, op, divot, divot - start, end - divot);
+			return new jsc.AST.AssignErrorExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, op, divot, divot - start, end - divot);
 
 		var expr = null;
 
@@ -290,13 +294,13 @@ jsc.AST.Context = Object.define({
 				if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
 					rightExpression.functionNode.inferredName = leftExpression.name;
 
-				expr = new jsc.AST.AssignResolveExpression(this.lineNumber, leftExpression.name, rightExpression, rightHasAssignments);
+				expr = new jsc.AST.AssignResolveExpression(this.lineNumber, columnNumber, leftExpression.name, rightExpression, rightHasAssignments);
 				this.setExceptionLocation(expr, divot, start, end);
 
 				return expr;
 			}
 
-			return new jsc.AST.ReadModifyResolveExpression(this.lineNumber, leftExpression.name, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+			return new jsc.AST.ReadModifyResolveExpression(this.lineNumber, columnNumber, leftExpression.name, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
 		}
 
 
@@ -304,9 +308,9 @@ jsc.AST.Context = Object.define({
 		if(leftExpression.isBracketAccessor)
 		{
 			if(op === jsc.AST.AssignmentOperatorKind.EQUAL)
-				return new jsc.AST.AssignBracketExpression(this.lineNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
+				return new jsc.AST.AssignBracketExpression(this.lineNumber, columnNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
 
-			expr = new jsc.AST.ReadModifyBracketExpression(this.lineNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+			expr = new jsc.AST.ReadModifyBracketExpression(this.lineNumber, columnNumber, leftExpression.base, leftExpression.subscript, leftHasAssignments, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
 			expr.setExpressionInfo(leftExpression.exceptionDivot, leftExpression.exceptionEndPosition);
 
 			return expr;
@@ -321,10 +325,10 @@ jsc.AST.Context = Object.define({
 				if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
 					rightExpression.functionNode.inferredName = leftExpression.name;
 
-				return new jsc.AST.AssignDotExpression(this.lineNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
+				return new jsc.AST.AssignDotExpression(this.lineNumber, columnNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, leftExpression.exceptionDivot, leftExpression.exceptionDivot - start, end - leftExpression.exceptionDivot);
 			}
 
-			expr = new jsc.AST.ReadModifyDotExpression(this.lineNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
+			expr = new jsc.AST.ReadModifyDotExpression(this.lineNumber, columnNumber, leftExpression.name, leftExpression.base, rightExpression, rightHasAssignments, op, divot, divot - start, end - divot);
 			expr.setExpressionInfo(leftExpression.exceptionDivot, leftExpression.exceptionEndPosition);
 
 			return expr;
@@ -334,41 +338,41 @@ jsc.AST.Context = Object.define({
 		throw new Error("Invalid assignment expression.");
 	},
 	
-	createAssignResolveExpression: function(name, rightExpression, rightHasAssignments, start, divot, end) {
+	createAssignResolveExpression: function(name, rightExpression, rightHasAssignments, start, divot, end, columnNumber) {
 		if(rightExpression.kind === jsc.AST.NodeKind.FUNCTION_EXPR)
 			rightExpression.functionNode.inferredName = name;
 
-		var expr = new jsc.AST.AssignResolveExpression(this.lineNumber, name, rightExpression, rightHasAssignments);
+		var expr = new jsc.AST.AssignResolveExpression(this.lineNumber, columnNumber, name, rightExpression, rightHasAssignments);
 		this.setExceptionLocation(expr, divot, start, end);
 
 		return expr;
 	},
 	
-	createResolveExpression: function(name, position) {
+	createResolveExpression: function(name, position, columnNumber) {
 		if(name === "arguments")
 			this.features |= jsc.AST.CodeFeatureFlags.ARGUMENTS;
 
-		return new jsc.AST.ResolveExpression(this.lineNumber, name, position);
+		return new jsc.AST.ResolveExpression(this.lineNumber, columnNumber, name, position);
 	},
 	
-	createConstDeclarationExpression: function(name, initializeExpression, nextExpression) {
-		return new jsc.AST.ConstantDeclarationExpression(this.lineNumber, name, initializeExpression, nextExpression);
+	createConstDeclarationExpression: function(name, initializeExpression, nextExpression, columnNumber) {
+		return new jsc.AST.ConstantDeclarationExpression(this.lineNumber, columnNumber, name, initializeExpression, nextExpression);
 	},
 	
-	createConditionalExpression: function(conditionExpression, leftExpression, rightExpression) {
-		return new jsc.AST.ConditionalExpression(this.lineNumber, conditionExpression, leftExpression, rightExpression);
+	createConditionalExpression: function(conditionExpression, leftExpression, rightExpression, columnNumber) {
+		return new jsc.AST.ConditionalExpression(this.lineNumber, columnNumber, conditionExpression, leftExpression, rightExpression);
 	},
 	
-	createPrefixExpression: function(expression, op, start, divot, end) {
+	createPrefixExpression: function(expression, op, start, divot, end, columnNumber) {
 		if(!expression.isLocation)
-			return new jsc.AST.PrefixErrorExpression(this.lineNumber, expression, op, divot, divot - start, end - divot);
+			return new jsc.AST.PrefixErrorExpression(this.lineNumber, columnNumber, expression, op, divot, divot - start, end - divot);
 
 		if(expression.isResolve)
-			return new jsc.AST.PrefixResolveExpression(this.lineNumber, expression.name, op, divot, divot - start, end - divot);
+			return new jsc.AST.PrefixResolveExpression(this.lineNumber, columnNumber, expression.name, op, divot, divot - start, end - divot);
 
 		if(expression.isBracketAccessor)
 		{
-			var bracketExpr = new jsc.AST.PrefixBracketExpression(this.lineNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
+			var bracketExpr = new jsc.AST.PrefixBracketExpression(this.lineNumber, columnNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
 			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionStartPosition);
 
 			return bracketExpr;
@@ -376,7 +380,7 @@ jsc.AST.Context = Object.define({
 
 		if(expression.isDotAccessor)
 		{
-			var dotExpr = new jsc.AST.PrefixDotExpression(this.lineNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
+			var dotExpr = new jsc.AST.PrefixDotExpression(this.lineNumber, columnNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
 			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionStartPosition);
 
 			return dotExpr;
@@ -385,16 +389,16 @@ jsc.AST.Context = Object.define({
 		throw new Error("Invalid prefix expression.");
 	},
 	
-	createPostfixExpression: function(expression, op, start, divot, end) {
+	createPostfixExpression: function(expression, op, start, divot, end, columnNumber) {
 		if(!expression.isLocation)
-			return new jsc.AST.PostfixErrorExpression(this.lineNumber, expression, op, divot, divot - start, end - divot);
+			return new jsc.AST.PostfixErrorExpression(this.lineNumber, columnNumber, expression, op, divot, divot - start, end - divot);
 
 		if(expression.isResolve)
-			return new jsc.AST.PostfixResolveExpression(this.lineNumber, expression.name, op, divot, divot - start, end - divot);
+			return new jsc.AST.PostfixResolveExpression(this.lineNumber, columnNumber, expression.name, op, divot, divot - start, end - divot);
 
 		if(expression.isBracketAccessor)
 		{
-			var bracketExpr = new jsc.AST.PostfixBracketExpression(this.lineNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
+			var bracketExpr = new jsc.AST.PostfixBracketExpression(this.lineNumber, columnNumber, expression.base, expression.subscript, op, divot, divot - start, end - divot);
 			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
 
 			return bracketExpr;
@@ -402,7 +406,7 @@ jsc.AST.Context = Object.define({
 
 		if(expression.isDotAccessor)
 		{
-			var dotExpr = new jsc.AST.PostfixDotExpression(this.lineNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
+			var dotExpr = new jsc.AST.PostfixDotExpression(this.lineNumber, columnNumber, expression.name, expression.base, op, divot, divot - start, end - divot);
 			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
 
 			return dotExpr;
@@ -411,86 +415,73 @@ jsc.AST.Context = Object.define({
 		throw new Error("Invalid postfix expression.");
 	},
 	
-	createLogicalNotExpression: function(expression) {
-		return new jsc.AST.LogicalNotExpression(this.lineNumber, expression);
+	createLogicalNotExpression: function(expression, columnNumber) {
+		return new jsc.AST.LogicalNotExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createBitwiseNotExpression: function(expression) {
-
-		// OPTIMIZATION: perform the bitwise not on the constant number value.
-		if(expression.isNumber)
-			return this.createNumberExpression(~jsc.Utils.toInt(expression.value), false);
-
-		return new jsc.AST.BitwiseNotExpression(this.lineNumber, expression);
+	createBitwiseNotExpression: function(expression, columnNumber) {
+		return new jsc.AST.BitwiseNotExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createNegateExpression: function(expression) {
-
-		// OPTIMIZATION: peform the negation on the number expression directly.
-		if(expression.isNumber)
-		{
-			expression.value = -expression.value;
-			return expression;
-		}
-
-		return new jsc.AST.NegateExpression(this.lineNumber, expression);
+	createNegateExpression: function(expression, columnNumber) {
+		return new jsc.AST.NegateExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createUnaryPlusExpression: function(expression) {
-		return new jsc.AST.UnaryPlusExpression(this.lineNumber, expression);
+	createUnaryPlusExpression: function(expression, columnNumber) {
+		return new jsc.AST.UnaryPlusExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createTypeOfExpression: function(expression) {
+	createTypeOfExpression: function(expression, columnNumber) {
 		if(expression.isResolve)
-			return new jsc.AST.TypeOfResolveExpression(this.lineNumber, expression.name);
+			return new jsc.AST.TypeOfResolveExpression(this.lineNumber, columnNumber, expression.name);
 
-		return new jsc.AST.TypeOfValueExpression(this.lineNumber, expression);
+		return new jsc.AST.TypeOfValueExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createVoidExpression: function(expression) {
+	createVoidExpression: function(expression, columnNumber) {
 		this.constantCount++;
 
-		return new jsc.AST.VoidExpression(this.lineNumber, expression);
+		return new jsc.AST.VoidExpression(this.lineNumber, columnNumber, expression);
 	},
 	
-	createDeleteExpression: function(expression, start, divot, end) {
+	createDeleteExpression: function(expression, start, divot, end, columnNumber) {
 		if(!expression.isLocation)
-			return new jsc.AST.DeleteValueExpression(this.lineNumber, expression);
+			return new jsc.AST.DeleteValueExpression(this.lineNumber, columnNumber, expression);
 
 		if(expression.isResolve)
-			return new jsc.AST.DeleteResolveExpression(this.lineNumber, expression.name, divot, divot - start, end - divot);
+			return new jsc.AST.DeleteResolveExpression(this.lineNumber, columnNumber, expression.name, divot, divot - start, end - divot);
 
 		if(expression.isBracketAccessor)
-			return new jsc.AST.DeleteBracketExpression(this.lineNumber, expression.base, expression.subscript, divot, divot - start, end - divot);
+			return new jsc.AST.DeleteBracketExpression(this.lineNumber, columnNumber, expression.base, expression.subscript, divot, divot - start, end - divot);
 
 		if(expression.isDotAccessor)
-			return new jsc.AST.DeleteDotExpression(this.lineNumber, expression.name, expression.base, divot, divot - start, end - divot);
+			return new jsc.AST.DeleteDotExpression(this.lineNumber, columnNumber, expression.name, expression.base, divot, divot - start, end - divot);
 
 		throw new Error("Invalid delete expression.");
 	},
 	
-	createThisExpression: function() {
+	createThisExpression: function(columnNumber) {
 		this.features |= jsc.AST.CodeFeatureFlags.THIS;
 
-		return new jsc.AST.ThisExpression(this.lineNumber);
+		return new jsc.AST.ThisExpression(this.lineNumber, columnNumber);
 	},
 	
-	createNewExpression: function(expression, start, end) {
-		var expr = new jsc.AST.NewExpression(this.lineNumber, expression);
+	createNewExpression: function(expression, start, end, columnNumber) {
+		var expr = new jsc.AST.NewExpression(this.lineNumber, columnNumber, expression);
 		this.setExceptionLocation(expr, start, end, end, false);
 
 		return expr;
 	},
 	
-	createNewExpressionWithArguments: function(expression, argumentList, start, divot, end) {
-		var expr = new jsc.AST.NewExpression(this.lineNumber, expression, argumentList);
+	createNewExpressionWithArguments: function(expression, argumentList, start, divot, end, columnNumber) {
+		var expr = new jsc.AST.NewExpression(this.lineNumber, columnNumber, expression, argumentList);
 		this.setExceptionLocation(expr, divot, start, end);
 
 		return expr;
 	},
 
-	createFunctionExpression: function(name, functionNode, parameterList, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
-		var expr = new jsc.AST.FunctionExpression(this.lineNumber, name, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameterList);
+	createFunctionExpression: function(name, functionNode, parameterList, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine, columnNumber) {
+		var expr = new jsc.AST.FunctionExpression(this.lineNumber, columnNumber, name, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameterList);
 
 		this.setStatementLocation(functionNode, bodyBeginLine, bodyEndLine);
 		this.functions.push(functionNode);
@@ -498,9 +489,9 @@ jsc.AST.Context = Object.define({
 		return expr;
 	},
 
-	createFunctionCallExpression: function(expression, argumentList, start, divot, end) {
+	createFunctionCallExpression: function(expression, argumentList, start, divot, end, columnNumber) {
 		if(!expression.isLocation)
-			return new jsc.AST.ValueFunctionCallExpression(this.lineNumber, expression, argumentList, divot, divot - start, end - divot);
+			return new jsc.AST.ValueFunctionCallExpression(this.lineNumber, columnNumber, expression, argumentList, divot, divot - start, end - divot);
 
 		if(expression.isResolve)
 		{
@@ -509,15 +500,15 @@ jsc.AST.Context = Object.define({
 				this.features |= jsc.AST.CodeFeatureFlags.EVAL;
 				this.evalCount++;
 
-				return new jsc.AST.EvalFunctionCallExpression(this.lineNumber, argumentList, divot, divot - start, end - divot);
+				return new jsc.AST.EvalFunctionCallExpression(this.lineNumber, columnNumber, argumentList, divot, divot - start, end - divot);
 			}
 
-			return new jsc.AST.ResolveFunctionCallExpression(this.lineNumber, expression.name, argumentList, divot, divot - start, end - divot);
+			return new jsc.AST.ResolveFunctionCallExpression(this.lineNumber, columnNumber, expression.name, argumentList, divot, divot - start, end - divot);
 		}
 
 		if(expression.isBracketAccessor)
 		{
-			var bracketExpr = new jsc.AST.BracketFunctionCallExpression(this.lineNumber, expression.base, expression.subscript, argumentList, divot, divot - start, end - divot);
+			var bracketExpr = new jsc.AST.BracketFunctionCallExpression(this.lineNumber, columnNumber, expression.base, expression.subscript, argumentList, divot, divot - start, end - divot);
 			bracketExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
 
 			return bracketExpr;
@@ -528,11 +519,11 @@ jsc.AST.Context = Object.define({
 			var dotExpr = null;
 
 			if(expression.name === "call")
-				dotExpr = new jsc.AST.CallDotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+				dotExpr = new jsc.AST.CallDotFunctionCallExpression(this.lineNumber, columnNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
 			else if(expression.name === "apply")
-				dotExpr = new jsc.AST.ApplyDotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+				dotExpr = new jsc.AST.ApplyDotFunctionCallExpression(this.lineNumber, columnNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
 			else
-				dotExpr = new jsc.AST.DotFunctionCallExpression(this.lineNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
+				dotExpr = new jsc.AST.DotFunctionCallExpression(this.lineNumber, columnNumber, expression.name, expression.base, argumentList, divot, divot - start, end - divot);
 
 			dotExpr.setExpressionInfo(expression.exceptionDivot, expression.exceptionEndPosition);
 
@@ -542,7 +533,7 @@ jsc.AST.Context = Object.define({
 		throw new Error("Invalid function call expression.");
 	},
 	
-	createArrayExpression: function(elements, elisions) {
+	createArrayExpression: function(columnNumber, elements, elisions) {
 		var isOptional = !jsc.Utils.isNull(elisions);
 
 		elisions = jsc.Utils.valueOrDefault(elisions, 0);
@@ -550,56 +541,56 @@ jsc.AST.Context = Object.define({
 		if(elisions > 0)
 			this.constantCount++;
 
-		return new jsc.AST.ArrayExpression(this.lineNumber, elements, elisions, isOptional);
+		return new jsc.AST.ArrayExpression(this.lineNumber, columnNumber, elements, elisions, isOptional);
 	},
 	
-	createObjectLiteralExpression: function(properties) {
-		return new jsc.AST.ObjectLiteralExpression(this.lineNumber, properties);
+	createObjectLiteralExpression: function(columnNumber, properties) {
+		return new jsc.AST.ObjectLiteralExpression(this.lineNumber, columnNumber, properties);
 	},
 
-	createBracketAccessorExpression: function(base, subscript, subscriptHasAssignments, start, divot, end) {
-		var expr = new jsc.AST.BracketAccessorExpression(this.lineNumber, base, subscript, subscriptHasAssignments);
+	createBracketAccessorExpression: function(base, subscript, subscriptHasAssignments, start, divot, end, columnNumber) {
+		var expr = new jsc.AST.BracketAccessorExpression(this.lineNumber, columnNumber, base, subscript, subscriptHasAssignments);
 		this.setExceptionLocation(expr, divot, start, end);
 
 		return expr;
 	},
 
-	createDotAccessorExpression: function(propertyName, baseExpression, start, divot, end) {
-		var expr = new jsc.AST.DotAccessorExpression(this.lineNumber, propertyName, baseExpression);
+	createDotAccessorExpression: function(propertyName, baseExpression, start, divot, end, columnNumber) {
+		var expr = new jsc.AST.DotAccessorExpression(this.lineNumber, columnNumber, propertyName, baseExpression);
 		this.setExceptionLocation(expr, divot, start, end);
 
 		return expr;
 	},
 	
-	createStringExpression: function(value) {
+	createStringExpression: function(value, columnNumber) {
 		this.constantCount++;
 
-		return new jsc.AST.StringExpression(this.lineNumber, value);
+		return new jsc.AST.StringExpression(this.lineNumber, columnNumber, value);
 	},
 	
-	createNumberExpression: function(value, isConstant) {
+	createNumberExpression: function(value, columnNumber, isConstant) {
 		isConstant = jsc.Utils.valueOrDefault(isConstant, true);
 
 		if(isConstant)
 			this.constantCount++;
 
-		return new jsc.AST.NumberExpression(this.lineNumber, value);
+		return new jsc.AST.NumberExpression(this.lineNumber, columnNumber, value);
 	},
 	
-	createNullExpression: function() {
+	createNullExpression: function(columnNumber) {
 		this.constantCount++;
 
-		return new jsc.AST.NullExpression(this.lineNumber);
+		return new jsc.AST.NullExpression(this.lineNumber, columnNumber);
 	},
 	
-	createBooleanExpression: function(value) {
+	createBooleanExpression: function(value, columnNumber) {
 		this.constantCount++;
 
-		return new jsc.AST.BooleanExpression(this.lineNumber, value);
+		return new jsc.AST.BooleanExpression(this.lineNumber, columnNumber, value);
 	},
 
-	createRegExpExpression: function(pattern, flags, start) {
-		var expr = new jsc.AST.RegExExpression(this.lineNumber, pattern, flags);
+	createRegExpExpression: function(pattern, flags, start, columnNumber) {
+		var expr = new jsc.AST.RegExExpression(this.lineNumber, columnNumber, pattern, flags);
 		var size = pattern.length + 2; // +2 for the two '/' chars.
 
 		this.setExceptionLocation(expr, start + size, start, start + size);
@@ -607,84 +598,84 @@ jsc.AST.Context = Object.define({
 		return expr;
 	},
 	
-	createCommaExpression: function(expr1, expr2) {
-		return new jsc.AST.CommaExpression(this.lineNumber, expr1, expr2);
+	createCommaExpression: function(expr1, expr2, columnNumber) {
+		return new jsc.AST.CommaExpression(this.lineNumber, columnNumber, expr1, expr2);
 	},
 
-	createBitwiseExpression: function(opCode, leftExpression, rightExpression, rightHasAssignments) {
+	createBitwiseExpression: function(opCode, leftExpression, rightExpression, rightHasAssignments, columnNumber) {
 		switch(opCode)
 		{
 			case jsc.AST.OpCode.BITWISE_AND:
-				return new jsc.AST.BitwiseAndExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+				return new jsc.AST.BitwiseAndExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 			case jsc.AST.OpCode.BITWISE_OR:
-				return new jsc.AST.BitwiseOrExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+				return new jsc.AST.BitwiseOrExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 			case jsc.AST.OpCode.BITWISE_XOR:
-				return new jsc.AST.BitwiseXOrExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+				return new jsc.AST.BitwiseXOrExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 			default:
 				throw new Error("Invalid bitwise operation.");
 		}
 	},
 
-	createDivideExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+	createDivideExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
 		leftExpression = this.stripUnaryPlusExpression(leftExpression);
 		rightExpression = this.stripUnaryPlusExpression(rightExpression);
 
-		return new jsc.AST.DivideExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+		return new jsc.AST.DivideExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createMultiplyExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+	createMultiplyExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
 		leftExpression = this.stripUnaryPlusExpression(leftExpression);
 		rightExpression = this.stripUnaryPlusExpression(rightExpression);
 
-		return new jsc.AST.MultiplyExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+		return new jsc.AST.MultiplyExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createSubtractExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+	createSubtractExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
 		leftExpression = this.stripUnaryPlusExpression(leftExpression);
 		rightExpression = this.stripUnaryPlusExpression(rightExpression);
 
-		return new jsc.AST.SubtractExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+		return new jsc.AST.SubtractExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createAddExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.AddExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createAddExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.AddExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createModExpression: function(leftExpression, rightExpression, rightHasAssignments) {
+	createModExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
 		leftExpression = this.stripUnaryPlusExpression(leftExpression);
 		rightExpression = this.stripUnaryPlusExpression(rightExpression);
 
-		return new jsc.AST.ModulusExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+		return new jsc.AST.ModulusExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createLeftShiftExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.LeftShiftExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createLeftShiftExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.LeftShiftExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createRightShiftExpression: function(leftExpression, rightExpression, rightHasAssignments, asUnsigned) {
+	createRightShiftExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber, asUnsigned) {
 		if(asUnsigned)
-			return new jsc.AST.RightShiftUnsignedExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+			return new jsc.AST.RightShiftUnsignedExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 
-		return new jsc.AST.RightShiftExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+		return new jsc.AST.RightShiftExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createLessThanExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.LessThanExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createLessThanExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.LessThanExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createLessThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.LessThanOrEqualExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createLessThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.LessThanOrEqualExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createGreaterThanExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.GreaterThanExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createGreaterThanExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.GreaterThanExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createGreaterThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments) {
-		return new jsc.AST.GreaterThanOrEqualExpression(this.lineNumber, leftExpression, rightExpression, rightHasAssignments);
+	createGreaterThanOrEqualExpression: function(leftExpression, rightExpression, rightHasAssignments, columnNumber) {
+		return new jsc.AST.GreaterThanOrEqualExpression(this.lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments);
 	},
 
-	createBinaryExpression: function(operatorTokenKind, leftOp, rightOp) {
+	createBinaryExpression: function(operatorTokenKind, leftOp, rightOp, columnNumber) {
 		var lhsExpr = leftOp.expression;
 		var rhsExpr = rightOp.expression;
 		var rhsHasAssignment = rightOp.info.hasAssignments;
@@ -692,85 +683,84 @@ jsc.AST.Context = Object.define({
 		switch(operatorTokenKind)
 		{
 			case jsc.Token.Kind.AND:
-				return new jsc.AST.LogicalExpression(this.lineNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.AND);
+				return new jsc.AST.LogicalExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.AND);
 
 			case jsc.Token.Kind.OR:
-				return new jsc.AST.LogicalExpression(this.lineNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.OR);
+				return new jsc.AST.LogicalExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, jsc.AST.LogicalOperatorKind.OR);
 
 			case jsc.Token.Kind.BITWISE_AND:
-				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_AND, lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_AND, lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.BITWISE_OR:
-				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_OR, lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_OR, lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.BITWISE_XOR:
-				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_XOR, lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createBitwiseExpression(jsc.AST.OpCode.BITWISE_XOR, lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.DIV:
-				return this.createDivideExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createDivideExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.MULT:
-				return this.createMultiplyExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createMultiplyExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.MINUS:
-				return this.createSubtractExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createSubtractExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.PLUS:
-				return this.createAddExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createAddExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.MOD:
-				return this.createModExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createModExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.LSHIFT:
-				return this.createLeftShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createLeftShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.RSHIFT:
-				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, false);
+				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber, false);
 
 			case jsc.Token.Kind.URSHIFT:
-				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, true);
+				return this.createRightShiftExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber, true);
 
 			case jsc.Token.Kind.EQUAL_EQUAL:
-				return new jsc.AST.EqualExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				return new jsc.AST.EqualExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 
 			case jsc.Token.Kind.NOT_EQUAL:
-				return new jsc.AST.NotEqualExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				return new jsc.AST.NotEqualExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 
 			case jsc.Token.Kind.STRICT_EQUAL:
-				return new jsc.AST.EqualStrictExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				return new jsc.AST.EqualStrictExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 
 			case jsc.Token.Kind.STRICT_NOT_EQUAL:
-				return new jsc.AST.NotEqualStrictExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				return new jsc.AST.NotEqualStrictExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 
 			case jsc.Token.Kind.LESS:
-				return this.createLessThanExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createLessThanExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.LESS_EQUAL:
-				return this.createLessThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createLessThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.GREATER:
-				return this.createGreaterThanExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createGreaterThanExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.GREATER_EQUAL:
-				return this.createGreaterThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment);
+				return this.createGreaterThanOrEqualExpression(lhsExpr, rhsExpr, rhsHasAssignment, columnNumber);
 
 			case jsc.Token.Kind.IN:
 			{
-				var inExpr = new jsc.AST.InExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				var inExpr = new jsc.AST.InExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 				this.setExceptionLocation(inExpr, rightOp.info.start, leftOp.info.start, rightOp.info.end);
 
 				return inExpr;
 			}
 			case jsc.Token.Kind.INSTANCEOF:
 			{
-				var instanceofExpr = new jsc.AST.InstanceOfExpression(this.lineNumber, lhsExpr, rhsExpr, rhsHasAssignment);
+				var instanceofExpr = new jsc.AST.InstanceOfExpression(this.lineNumber, columnNumber, lhsExpr, rhsExpr, rhsHasAssignment);
 				this.setExceptionLocation(instanceofExpr, rightOp.info.start, leftOp.info.start, rightOp.info.end);
 
 				return instanceofExpr;
 			}
 			default:
-				return null;
-				//throw new Error("Unknown binary expression operation. Operation Kind='" + jsc.Token.getName(operatorTokenKind) + "'.");
+				throw new Error("Unknown binary expression operation. Operation Kind='" + jsc.Token.getName(operatorTokenKind) + "'.");
 		}
 	},
 
@@ -783,16 +773,16 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.ParameterListNode(name, list);
 	},
 	
-	createArgumentsList: function(expression, list) {
-		return new jsc.AST.ArgumentListNode(this.lineNumber, expression, list);
+	createArgumentsList: function(columnNumber, expression, list) {
+		return new jsc.AST.ArgumentListNode(this.lineNumber, columnNumber, expression, list);
 	},
 	
 	createArrayElementList: function(expression, elisions, list) {
 		return new jsc.AST.ArrayElementList(elisions, expression, list);
 	},
 	
-	createPropertyList: function(propertyNode, propertyList) {
-		return new jsc.AST.PropertyListNode(this.lineNumber, propertyNode, propertyList);
+	createPropertyList: function(columnNumber, propertyNode, propertyList) {
+		return new jsc.AST.PropertyListNode(this.lineNumber, columnNumber, propertyNode, propertyList);
 	},
 	
 	createProperty: function(propertyName, expression, flags) {
@@ -802,7 +792,7 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.PropertyNode(propertyName, flags, expression);
 	},
 
-	createGetterOrSetterProperty: function(propertyName, flags, parameters, functionNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine) {
+	createGetterOrSetterProperty: function(propertyName, flags, parameters, functionNode, openBracePosition, closeBracePosition, bodyBeginLine, bodyEndLine, columnNumber) {
 		if(jsc.Utils.isString(propertyName))
 			functionNode.inferredName = propertyName;
 
@@ -811,7 +801,7 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.PropertyNode(
 			propertyName,
 			flags,
-			new jsc.AST.FunctionExpression(this.lineNumber, null, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameters));
+			new jsc.AST.FunctionExpression(this.lineNumber, columnNumber, null, functionNode, this.source.toSourceCode(openBracePosition, closeBracePosition, bodyBeginLine), parameters));
 	},
 
 
@@ -820,7 +810,7 @@ jsc.AST.Context = Object.define({
 	// CONTEXT STATE / UTILS
 	//=============================================================================================
 
-	combineCommaExpressions: function(list, initExpression) {
+	combineCommaExpressions: function(list, initExpression, columnNumber) {
 		if(jsc.Utils.isNull(list))
 			return initExpression;
 
@@ -830,7 +820,7 @@ jsc.AST.Context = Object.define({
 			return list;
 		}
 
-		return new jsc.AST.CommaExpression(this.lineNumber, list, initExpression);
+		return new jsc.AST.CommaExpression(this.lineNumber, columnNumber, list, initExpression);
 	},
 
 	stripUnaryPlusExpression: function(expression) {
@@ -848,14 +838,14 @@ jsc.AST.Context = Object.define({
 		return (precedence <= this.binaryOperatorStack[this.binaryOperatorStack.length-1][1]);
 	},
 	
-	appendAssignment: function(expr, start, divot, count, op) {
-		this.assignmentStack.push(new jsc.AST.AssignmentInfo(expr, start, divot, count, op));
+	appendAssignment: function(expr, start, divot, columnNumber, count, op) {
+		this.assignmentStack.push(new jsc.AST.AssignmentInfo(expr, start, divot, columnNumber, count, op));
 	},
 	
-	pushBinaryOperand: function(state, expr, start, divot, end, hasAssignments) {
+	pushBinaryOperand: function(state, expr, start, divot, end, columnNumber, hasAssignments) {
 		state.operandDepth++;
 
-		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(expr, new jsc.AST.BinaryOperationInfo(start, divot, end, hasAssignments)));
+		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(expr, new jsc.AST.BinaryOperationInfo(start, divot, end, columnNumber, hasAssignments)));
 	},
 	
 	popBinaryOperand: function() {
@@ -879,7 +869,9 @@ jsc.AST.Context = Object.define({
 			throw new Error("Not enough binary operands on the stack.");
 
 		this.binaryOperandStack.length -= 2;
-		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(this.createBinaryExpression(this.binaryOperatorStack[this.binaryOperatorStack.length-1][0], lhs, rhs), new jsc.AST.BinaryOperationInfo.FromBinaryOperations(lhs.info, rhs.info)));
+		this.binaryOperandStack.push(new jsc.AST.BinaryOperand(
+				this.createBinaryExpression(this.binaryOperatorStack[this.binaryOperatorStack.length-1][0], lhs, rhs, lhs.info.columnNumber),
+				new jsc.AST.BinaryOperationInfo.FromBinaryOperations(lhs.info, rhs.info)));
 		
 		this.binaryOperatorStack.pop();
 		
@@ -887,8 +879,8 @@ jsc.AST.Context = Object.define({
 		operationState.operatorDepth--;
 	},
 	
-	pushUnaryToken: function(tokenKind, tokenBegin) {
-		this.unaryTokenStack.push([tokenKind, tokenBegin]);
+	pushUnaryToken: function(tokenKind, tokenBegin, tokenColumn) {
+		this.unaryTokenStack.push([tokenKind, tokenBegin, tokenColumn]);
 	},
 	
 	popUnaryToken: function() {
@@ -916,9 +908,14 @@ jsc.AST.Context = Object.define({
  * @class
  */
 jsc.AST.Node = Object.define({
-	initialize: function(kind, lineNumber) {
+	initialize: function(kind, lineNumber, columnNumber) {
 		this.kind = jsc.Utils.valueOrDefault(kind, jsc.AST.NodeKind.UNKNOWN);
 		this.lineNumber = jsc.Utils.valueOrDefault(lineNumber, 1);
+		this.columnNumber = jsc.Utils.valueOrDefault(columnNumber, 1);
+	},
+
+	get isEmpty() {
+		return (this.kind === jsc.AST.NodeKind.EMPTY);
 	},
 
 	get isThis() {
@@ -961,6 +958,14 @@ jsc.AST.Node = Object.define({
 		return (this.kind === jsc.AST.NodeKind.DOT_ACCESSOR);
 	},
 
+	get isIfOrIfElse() {
+		return (this.kind === jsc.AST.NodeKind.IF || this.kind === jsc.AST.NodeKind.IF_ELSE);
+	},
+
+	get isStatement() {
+		return false;
+	},
+
 	toString: function() {
 		for(var kind in jsc.AST.NodeKind)
 		{
@@ -985,8 +990,8 @@ jsc.AST.Node = Object.define({
  * @class
  */
 jsc.AST.Expression = Object.define(jsc.AST.Node, {
-	initialize: function($super, kind, lineNumber, resultKind) {
-		$super(kind, lineNumber);
+	initialize: function($super, kind, lineNumber, columnNumber, resultKind) {
+		$super(kind, lineNumber, columnNumber);
 
 		this.state = {
 			resultKind: jsc.Utils.valueOrDefault(resultKind, jsc.AST.ExpressionResultKind.Unknown)
@@ -1002,8 +1007,8 @@ jsc.AST.Expression = Object.define(jsc.AST.Node, {
 
 /** @class */
 jsc.AST.ThrowableExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, kind, lineNumber, resultKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(kind, lineNumber, resultKind);
+	initialize: function($super, kind, lineNumber, columnNumber, resultKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(kind, lineNumber, columnNumber, resultKind);
 
 		this.exceptionDivot = jsc.Utils.valueOrDefault(exceptionDivot, -1);
 		this.exceptionStartPosition = jsc.Utils.valueOrDefault(exceptionStartPosition, -1);
@@ -1014,14 +1019,14 @@ jsc.AST.ThrowableExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ThrowableSubExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, kind, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(kind, lineNumber, jsc.AST.ExpressionResultKind.Unknown, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, kind, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(kind, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Unknown, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 
 		this.subDivot = 0;
 		this.subEndPosition = 0;
 	},
 	
-	setExpressionInfo: function(divot, endPosition) {
+	setExpressionInfo: function(divot, end) {
 		if(divot > this.exceptionDivot)
 			throw new Error();
 			
@@ -1029,15 +1034,15 @@ jsc.AST.ThrowableSubExpression = Object.define(jsc.AST.ThrowableExpression, {
 			return;
 
 		this.subDivot = this.exceptionDivot - divot;
-		this.subEndPosition = endPosition;
+		this.subEndPosition = end;
 	}
 });
 
 
 /** @class */
 jsc.AST.ThrowablePrefixedSubExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, kind, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(kind, lineNumber, jsc.AST.ExpressionResultKind.Unknown, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, kind, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(kind, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Unknown, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 
 		this.subDivot = 0;
 		this.subStartPosition = 0;
@@ -1058,8 +1063,8 @@ jsc.AST.ThrowablePrefixedSubExpression = Object.define(jsc.AST.ThrowableExpressi
 
 /** @class */
 jsc.AST.ThrowableBinaryExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, kind, resultKind, opCode, leftExpression, rightExpression, rightHasAssignments) {
-		$super(kind, lineNumber, resultKind);
+	initialize: function($super, lineNumber, columnNumber, kind, resultKind, opCode, leftExpression, rightExpression, rightHasAssignments) {
+		$super(kind, lineNumber, columnNumber, resultKind);
 
 		this.opCode = opCode;
 		this.leftExpression = leftExpression;
@@ -1071,8 +1076,8 @@ jsc.AST.ThrowableBinaryExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.NewExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, expression, args) {
-		$super(jsc.AST.NodeKind.NEW, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, args) {
+		$super(jsc.AST.NodeKind.NEW, lineNumber, columnNumber);
 		
 		this.expression = expression;
 		this.args = args;
@@ -1082,8 +1087,8 @@ jsc.AST.NewExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.CommaExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, expr1, expr2) {
-		$super(jsc.AST.NodeKind.COMMA, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expr1, expr2) {
+		$super(jsc.AST.NodeKind.COMMA, lineNumber, columnNumber);
 		
 		this.expressions = [expr1, expr2];
 	},
@@ -1104,8 +1109,8 @@ jsc.AST.CommaExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.VoidExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.VOID, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.VOID, lineNumber, columnNumber);
 
 		this.expression = expression;
 	}
@@ -1114,24 +1119,24 @@ jsc.AST.VoidExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ThisExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.THIS, lineNumber);
+	initialize: function($super, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.THIS, lineNumber, columnNumber);
 	}
 });
 
 
 /** @class */
 jsc.AST.NullExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.NULL, lineNumber, jsc.AST.ExpressionResultKind.Null);
+	initialize: function($super, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.NULL, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Null);
 	}
 });
 
 
 /** @class */
 jsc.AST.ArrayExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, elements, elision, isOptional) {
-		$super(jsc.AST.NodeKind.ARRAY, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, elements, elision, isOptional) {
+		$super(jsc.AST.NodeKind.ARRAY, lineNumber, columnNumber);
 		
 		this.elements = jsc.Utils.valueOrDefault(elements, null);
 		this.elision = jsc.Utils.valueOrDefault(elision, 0);
@@ -1142,8 +1147,8 @@ jsc.AST.ArrayExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ObjectLiteralExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, properties) {
-		$super(jsc.AST.NodeKind.OBJECT_LITERAL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, properties) {
+		$super(jsc.AST.NodeKind.OBJECT_LITERAL, lineNumber, columnNumber);
 		
 		this.properties = jsc.Utils.valueOrDefault(properties, null);
 	},
@@ -1156,8 +1161,8 @@ jsc.AST.ObjectLiteralExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.BooleanExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, value) {
-		$super(jsc.AST.NodeKind.BOOLEAN, lineNumber, jsc.AST.ExpressionResultKind.Boolean);
+	initialize: function($super, lineNumber, columnNumber, value) {
+		$super(jsc.AST.NodeKind.BOOLEAN, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Boolean);
 
 		this.value = value;
 	}
@@ -1166,8 +1171,8 @@ jsc.AST.BooleanExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.NumberExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, value) {
-		$super(jsc.AST.NodeKind.NUMBER, lineNumber, jsc.AST.ExpressionResultKind.Number);
+	initialize: function($super, lineNumber, columnNumber, value) {
+		$super(jsc.AST.NodeKind.NUMBER, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Number);
 
 		this.value = value;
 	}
@@ -1176,8 +1181,8 @@ jsc.AST.NumberExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.StringExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, value) {
-		$super(jsc.AST.NodeKind.STRING, lineNumber, jsc.AST.ExpressionResultKind.String);
+	initialize: function($super, lineNumber, columnNumber, value) {
+		$super(jsc.AST.NodeKind.STRING, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.String);
 
 		this.value = value;
 		this.isDirective = false;
@@ -1187,8 +1192,8 @@ jsc.AST.StringExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.RegExExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, pattern, flags) {
-		$super(jsc.AST.NodeKind.REGEX, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, pattern, flags) {
+		$super(jsc.AST.NodeKind.REGEX, lineNumber, columnNumber);
 		
 		this.pattern = pattern;
 		this.flags = flags;
@@ -1198,8 +1203,8 @@ jsc.AST.RegExExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.ConditionalExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, conditionExpression, leftExpression, rightExpression) {
-		$super(jsc.AST.NodeKind.CONDITIONAL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, conditionExpression, leftExpression, rightExpression) {
+		$super(jsc.AST.NodeKind.CONDITIONAL, lineNumber, columnNumber);
 
 		this.conditionExpression = conditionExpression;
 		this.leftExpression = leftExpression;
@@ -1210,8 +1215,8 @@ jsc.AST.ConditionalExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ConstantDeclarationExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, name, initializeExpression, nextExpression) {
-		$super(jsc.AST.NodeKind.CONST_DECL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, initializeExpression, nextExpression) {
+		$super(jsc.AST.NodeKind.CONST_DECL, lineNumber, columnNumber);
 
 		this.name = name;
 		this.initializeExpression = initializeExpression;
@@ -1229,8 +1234,8 @@ jsc.AST.ConstantDeclarationExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.FunctionExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, name, functionNode, source, parameters) {
-		$super(jsc.AST.NodeKind.FUNCTION_EXPR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, functionNode, source, parameters) {
+		$super(jsc.AST.NodeKind.FUNCTION_EXPR, lineNumber, columnNumber);
 
 		this.functionNode = functionNode;
 		this.functionNode.finalize(source, name, parameters, jsc.AST.NodeKind.FUNCTION_EXPR);
@@ -1240,8 +1245,8 @@ jsc.AST.FunctionExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.BinaryExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, kind, resultKind, opCode, leftExpression, rightExpression, rightHasAssignments) {
-		$super(kind, lineNumber, resultKind);
+	initialize: function($super, lineNumber, columnNumber, kind, resultKind, opCode, leftExpression, rightExpression, rightHasAssignments) {
+		$super(kind, lineNumber, columnNumber, resultKind);
 
 		this.opCode = opCode;
 		this.leftExpression = leftExpression;
@@ -1253,9 +1258,10 @@ jsc.AST.BinaryExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.AddExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.ADD, 
 			jsc.AST.ExpressionResultKind.ForAdd(leftExpression.resultKind, rightExpression.resultKind),
 			jsc.AST.OpCode.ADD,
@@ -1268,9 +1274,10 @@ jsc.AST.AddExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.SubtractExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.SUBTRACT, 
 			jsc.AST.ExpressionResultKind.Number,
 			jsc.AST.OpCode.SUBTRACT,
@@ -1283,9 +1290,10 @@ jsc.AST.SubtractExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.MultiplyExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.MULTIPLY, 
 			jsc.AST.ExpressionResultKind.Number,
 			jsc.AST.OpCode.MULTIPLY,
@@ -1298,9 +1306,10 @@ jsc.AST.MultiplyExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.DivideExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.DIVIDE, 
 			jsc.AST.ExpressionResultKind.Number,
 			jsc.AST.OpCode.DIVIDE,
@@ -1313,9 +1322,10 @@ jsc.AST.DivideExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.ModulusExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.MODULUS, 
 			jsc.AST.ExpressionResultKind.Number,
 			jsc.AST.OpCode.MODULUS,
@@ -1328,9 +1338,10 @@ jsc.AST.ModulusExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.LeftShiftExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.LEFT_SHIFT, 
 			jsc.AST.ExpressionResultKind.Int32,
 			jsc.AST.OpCode.LEFT_SHIFT,
@@ -1343,9 +1354,10 @@ jsc.AST.LeftShiftExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.RightShiftExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.RIGHT_SHIFT, 
 			jsc.AST.ExpressionResultKind.Int32,
 			jsc.AST.OpCode.RIGHT_SHIFT,
@@ -1358,9 +1370,10 @@ jsc.AST.RightShiftExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.RightShiftUnsignedExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.RIGHT_SHIFT_UNSIGNED, 
 			jsc.AST.ExpressionResultKind.Number,
 			jsc.AST.OpCode.RIGHT_SHIFT_UNSIGNED,
@@ -1373,9 +1386,10 @@ jsc.AST.RightShiftUnsignedExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.LessThanExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.LESS,
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.LESS,
@@ -1388,9 +1402,10 @@ jsc.AST.LessThanExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.LessThanOrEqualExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.LESS_EQ,
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.LESS_EQ,
@@ -1403,9 +1418,10 @@ jsc.AST.LessThanOrEqualExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.GreaterThanExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.GREATER,
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.GREATER,
@@ -1418,9 +1434,10 @@ jsc.AST.GreaterThanExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.GreaterThanOrEqualExpression = Object.define(jsc.AST.BinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.GREATER_EQ,
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.GREATER_EQ,
@@ -1433,9 +1450,10 @@ jsc.AST.GreaterThanOrEqualExpression = Object.define(jsc.AST.BinaryExpression, {
 
 /** @class */
 jsc.AST.EqualExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.EQUAL, 
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.EQUAL,
@@ -1448,9 +1466,10 @@ jsc.AST.EqualExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
 
 /** @class */
 jsc.AST.EqualStrictExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.EQUAL_STRICT, 
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.EQUAL_STRICT,
@@ -1463,9 +1482,10 @@ jsc.AST.EqualStrictExpression = Object.define(jsc.AST.ThrowableBinaryExpression,
 
 /** @class */
 jsc.AST.NotEqualExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.NOT_EQUAL, 
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.NOT_EQUAL,
@@ -1478,9 +1498,10 @@ jsc.AST.NotEqualExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
 
 /** @class */
 jsc.AST.NotEqualStrictExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.NOT_EQUAL_STRICT, 
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.NOT_EQUAL_STRICT,
@@ -1493,9 +1514,10 @@ jsc.AST.NotEqualStrictExpression = Object.define(jsc.AST.ThrowableBinaryExpressi
 
 /** @class */
 jsc.AST.BitwiseAndExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.BITWISE_AND, 
 			jsc.AST.ExpressionResultKind.Int32,
 			jsc.AST.OpCode.BITWISE_AND,
@@ -1508,9 +1530,10 @@ jsc.AST.BitwiseAndExpression = Object.define(jsc.AST.ThrowableBinaryExpression, 
 
 /** @class */
 jsc.AST.BitwiseOrExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.BITWISE_OR, 
 			jsc.AST.ExpressionResultKind.Int32,
 			jsc.AST.OpCode.BITWISE_OR,
@@ -1523,9 +1546,10 @@ jsc.AST.BitwiseOrExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
 
 /** @class */
 jsc.AST.BitwiseXOrExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.BITWISE_XOR, 
 			jsc.AST.ExpressionResultKind.Int32,
 			jsc.AST.OpCode.BITWISE_XOR,
@@ -1538,8 +1562,8 @@ jsc.AST.BitwiseXOrExpression = Object.define(jsc.AST.ThrowableBinaryExpression, 
 
 /** @class */
 jsc.AST.BitwiseNotExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.BITWISE_NOT, lineNumber, jsc.AST.ExpressionResultKind.Int32);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.BITWISE_NOT, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Int32);
 
 		this.expression = expression;
 	}
@@ -1548,8 +1572,8 @@ jsc.AST.BitwiseNotExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.UnaryExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, kind, lineNumber, resultKind, expression) {
-		$super(kind, lineNumber, resultKind);
+	initialize: function($super, kind, lineNumber, columnNumber, resultKind, expression) {
+		$super(kind, lineNumber, columnNumber, resultKind);
 
 		this.expression = expression;
 	}
@@ -1558,32 +1582,32 @@ jsc.AST.UnaryExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.UnaryPlusExpression = Object.define(jsc.AST.UnaryExpression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.UNARY_PLUS, lineNumber, jsc.AST.ExpressionResultKind.Number, expression);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.UNARY_PLUS, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Number, expression);
 	}
 });
 
 
 /** @class */
 jsc.AST.NegateExpression = Object.define(jsc.AST.UnaryExpression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.NEGATE, lineNumber, jsc.AST.ExpressionResultKind.Number, expression);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.NEGATE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Number, expression);
 	}
 });
 
 
 /** @class */
 jsc.AST.LogicalNotExpression = Object.define(jsc.AST.UnaryExpression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.LOGICAL_NOT, lineNumber, jsc.AST.ExpressionResultKind.Boolean, expression);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.LOGICAL_NOT, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Boolean, expression);
 	}
 });
 
 
 /** @class */
 jsc.AST.LogicalExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, logicalOperator) {
-		$super(jsc.AST.NodeKind.LOGICAL_OP, lineNumber, jsc.AST.ExpressionResultKind.Boolean);
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, logicalOperator) {
+		$super(jsc.AST.NodeKind.LOGICAL_OP, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Boolean);
 
 		this.leftExpression = leftExpression;
 		this.rightExpression = rightExpression;
@@ -1594,9 +1618,10 @@ jsc.AST.LogicalExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.InExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.IN, 
 			jsc.AST.ExpressionResultKind.UNKNOWN,
 			jsc.AST.OpCode.IN,
@@ -1609,8 +1634,8 @@ jsc.AST.InExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
 
 /** @class */
 jsc.AST.ResolveExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, name, position) {
-		$super(jsc.AST.NodeKind.RESOLVE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, position) {
+		$super(jsc.AST.NodeKind.RESOLVE, lineNumber, columnNumber);
 
 		this.name = name;
 		this.position = position;
@@ -1620,8 +1645,8 @@ jsc.AST.ResolveExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.TypeOfResolveExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, name) {
-		$super(jsc.AST.NodeKind.TYPEOF_RESOLVE, lineNumber, jsc.AST.ExpressionResultKind.String);
+	initialize: function($super, lineNumber, columnNumber, name) {
+		$super(jsc.AST.NodeKind.TYPEOF_RESOLVE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.String);
 
 		this.name = name;
 	}
@@ -1630,8 +1655,8 @@ jsc.AST.TypeOfResolveExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.TypeOfValueExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.TYPEOF_VALUE, lineNumber, jsc.AST.ExpressionResultKind.String);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.TYPEOF_VALUE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.String);
 
 		this.expression = expression;
 	}
@@ -1640,9 +1665,10 @@ jsc.AST.TypeOfValueExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.InstanceOfExpression = Object.define(jsc.AST.ThrowableBinaryExpression, {
-	initialize: function($super, lineNumber, leftExpression, rightExpression, rightHasAssignments) {
+	initialize: function($super, lineNumber, columnNumber, leftExpression, rightExpression, rightHasAssignments) {
 		$super(
 			lineNumber,
+			columnNumber,
 			jsc.AST.NodeKind.INSTANCEOF, 
 			jsc.AST.ExpressionResultKind.Boolean,
 			jsc.AST.OpCode.INSTANCEOF,
@@ -1655,8 +1681,8 @@ jsc.AST.InstanceOfExpression = Object.define(jsc.AST.ThrowableBinaryExpression, 
 
 /** @class */
 jsc.AST.BracketAccessorExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, base, subscript, subscriptHasAssignments) {
-		$super(jsc.AST.NodeKind.BRACKET_ACCESSOR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, subscriptHasAssignments) {
+		$super(jsc.AST.NodeKind.BRACKET_ACCESSOR, lineNumber, columnNumber);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1667,8 +1693,8 @@ jsc.AST.BracketAccessorExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.DotAccessorExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, base) {
-		$super(jsc.AST.NodeKind.DOT_ACCESSOR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, base) {
+		$super(jsc.AST.NodeKind.DOT_ACCESSOR, lineNumber, columnNumber);
 		
 		this.name = name;
 		this.base = base;
@@ -1678,8 +1704,8 @@ jsc.AST.DotAccessorExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.AssignBracketExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, base, subscript, subscriptHasAssignments, right, rightHasAssignments, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.ASSIGN_BRACKET, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, subscriptHasAssignments, right, rightHasAssignments, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.ASSIGN_BRACKET, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1692,8 +1718,8 @@ jsc.AST.AssignBracketExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.AssignDotExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, base, right, rightHasAssignments, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.ASSIGN_DOT, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, right, rightHasAssignments, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.ASSIGN_DOT, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1705,8 +1731,8 @@ jsc.AST.AssignDotExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.AssignErrorExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, left, right, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.ASSIGN_ERROR, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, left, right, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.ASSIGN_ERROR, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.left = left;
 		this.right = right;
@@ -1717,8 +1743,8 @@ jsc.AST.AssignErrorExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.AssignResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, right, rightHasAssignments) {
-		$super(jsc.AST.NodeKind.ASSIGN_RESOLVE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, right, rightHasAssignments) {
+		$super(jsc.AST.NodeKind.ASSIGN_RESOLVE, lineNumber, columnNumber);
 		
 		this.name = name;
 		this.right = right;
@@ -1729,8 +1755,8 @@ jsc.AST.AssignResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.PrePostResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, kind, lineNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(kind, lineNumber, jsc.AST.ExpressionResultKind.Number, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, kind, lineNumber, columnNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(kind, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.Number, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 	}
@@ -1739,8 +1765,8 @@ jsc.AST.PrePostResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.PrefixBracketExpression = Object.define(jsc.AST.ThrowablePrefixedSubExpression, {
-	initialize: function($super, lineNumber, base, subscript, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.PREFIX_BRACKET, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.PREFIX_BRACKET, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1751,8 +1777,8 @@ jsc.AST.PrefixBracketExpression = Object.define(jsc.AST.ThrowablePrefixedSubExpr
 
 /** @class */
 jsc.AST.PrefixDotExpression = Object.define(jsc.AST.ThrowablePrefixedSubExpression, {
-	initialize: function($super, lineNumber, name, base, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.PREFIX_DOT, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.PREFIX_DOT, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1763,8 +1789,8 @@ jsc.AST.PrefixDotExpression = Object.define(jsc.AST.ThrowablePrefixedSubExpressi
 
 /** @class */
 jsc.AST.PrefixErrorExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, expression, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.PREFIX_ERROR, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, expression, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.PREFIX_ERROR, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.expression = expression;
 		this.operatorKind = operatorKind;
@@ -1774,8 +1800,8 @@ jsc.AST.PrefixErrorExpression = Object.define(jsc.AST.ThrowableSubExpression, {
 
 /** @class */
 jsc.AST.PrefixResolveExpression = Object.define(jsc.AST.PrePostResolveExpression, {
-	initialize: function($super, lineNumber, name, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.PREFIX_RESOLVE, lineNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.PREFIX_RESOLVE, lineNumber, columnNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.operatorKind = operatorKind;
 	}
@@ -1784,8 +1810,8 @@ jsc.AST.PrefixResolveExpression = Object.define(jsc.AST.PrePostResolveExpression
 
 /** @class */
 jsc.AST.PostfixBracketExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, base, subscript, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.POSTFIX_BRACKET, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.POSTFIX_BRACKET, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1796,8 +1822,8 @@ jsc.AST.PostfixBracketExpression = Object.define(jsc.AST.ThrowableSubExpression,
 
 /** @class */
 jsc.AST.PostfixDotExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, name, base, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.POSTFIX_DOT, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.POSTFIX_DOT, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1808,8 +1834,8 @@ jsc.AST.PostfixDotExpression = Object.define(jsc.AST.ThrowableSubExpression, {
 
 /** @class */
 jsc.AST.PostfixErrorExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, expression, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.POSTFIX_ERROR, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, expression, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.POSTFIX_ERROR, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.expression = expression;
 		this.operatorKind = operatorKind;
@@ -1819,8 +1845,8 @@ jsc.AST.PostfixErrorExpression = Object.define(jsc.AST.ThrowableSubExpression, {
 
 /** @class */
 jsc.AST.PostfixResolveExpression = Object.define(jsc.AST.PrePostResolveExpression, {
-	initialize: function($super, lineNumber, name, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.POSTFIX_RESOLVE, lineNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.POSTFIX_RESOLVE, lineNumber, columnNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.operatorKind = operatorKind;
 	}
@@ -1829,8 +1855,8 @@ jsc.AST.PostfixResolveExpression = Object.define(jsc.AST.PrePostResolveExpressio
 
 /** @class */
 jsc.AST.DeleteBracketExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, base, subscript, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.DELETE_BRACKET, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.DELETE_BRACKET, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1840,8 +1866,8 @@ jsc.AST.DeleteBracketExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.DeleteDotExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, base, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.DELETE_DOT, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.DELETE_DOT, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1851,8 +1877,8 @@ jsc.AST.DeleteDotExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.DeleteResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.DELETE_RESOLVE, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.DELETE_RESOLVE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 	}
@@ -1861,8 +1887,8 @@ jsc.AST.DeleteResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
 
 /** @class */
 jsc.AST.DeleteValueExpression = Object.define(jsc.AST.Expression, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.DELETE_VALUE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.DELETE_VALUE, lineNumber, columnNumber);
 
 		this.expression = expression;
 	}
@@ -1871,8 +1897,8 @@ jsc.AST.DeleteValueExpression = Object.define(jsc.AST.Expression, {
 
 /** @class */
 jsc.AST.ReadModifyBracketExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, base, subscript, subscriptHasAssignments, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.READ_MODIFY_BRACKET, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, subscriptHasAssignments, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.READ_MODIFY_BRACKET, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1886,8 +1912,8 @@ jsc.AST.ReadModifyBracketExpression = Object.define(jsc.AST.ThrowableSubExpressi
 
 /** @class */
 jsc.AST.ReadModifyDotExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, name, base, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.READ_MODIFY_DOT, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.READ_MODIFY_DOT, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1900,8 +1926,8 @@ jsc.AST.ReadModifyDotExpression = Object.define(jsc.AST.ThrowableSubExpression, 
 
 /** @class */
 jsc.AST.ReadModifyResolveExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.READ_MODIFY_RESOLVE, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, right, rightHasAssignments, operatorKind, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.READ_MODIFY_RESOLVE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.right = right;
@@ -1913,8 +1939,8 @@ jsc.AST.ReadModifyResolveExpression = Object.define(jsc.AST.ThrowableExpression,
 
 /** @class */
 jsc.AST.BracketFunctionCallExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, base, subscript, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.FUNC_CALL_BRACKET, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, base, subscript, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.FUNC_CALL_BRACKET, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.base = base;
 		this.subscript = subscript;
@@ -1925,8 +1951,8 @@ jsc.AST.BracketFunctionCallExpression = Object.define(jsc.AST.ThrowableSubExpres
 
 /** @class */
 jsc.AST.DotFunctionCallExpression = Object.define(jsc.AST.ThrowableSubExpression, {
-	initialize: function($super, lineNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, kind) {
-		$super(jsc.Utils.valueOrDefault(kind, jsc.AST.NodeKind.FUNC_CALL_DOT), lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, kind) {
+		$super(jsc.Utils.valueOrDefault(kind, jsc.AST.NodeKind.FUNC_CALL_DOT), lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.base = base;
@@ -1937,8 +1963,8 @@ jsc.AST.DotFunctionCallExpression = Object.define(jsc.AST.ThrowableSubExpression
 
 /** @class */
 jsc.AST.ResolveFunctionCallExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, name, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.FUNC_CALL_RESOLVE, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.FUNC_CALL_RESOLVE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.args = args;
@@ -1948,8 +1974,8 @@ jsc.AST.ResolveFunctionCallExpression = Object.define(jsc.AST.ThrowableExpressio
 
 /** @class */
 jsc.AST.ValueFunctionCallExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, expression, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.FUNC_CALL_VALUE, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, expression, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.FUNC_CALL_VALUE, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.expression = expression;
 		this.args = args;
@@ -1959,8 +1985,8 @@ jsc.AST.ValueFunctionCallExpression = Object.define(jsc.AST.ThrowableExpression,
 
 /** @class */
 jsc.AST.EvalFunctionCallExpression = Object.define(jsc.AST.ThrowableExpression, {
-	initialize: function($super, lineNumber, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.FUNC_CALL_EVAL, lineNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.FUNC_CALL_EVAL, lineNumber, columnNumber, jsc.AST.ExpressionResultKind.UNKNOWN, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.args = args;
 	}
@@ -1969,16 +1995,16 @@ jsc.AST.EvalFunctionCallExpression = Object.define(jsc.AST.ThrowableExpression, 
 
 /** @class */
 jsc.AST.ApplyDotFunctionCallExpression = Object.define(jsc.AST.DotFunctionCallExpression, {
-	initialize: function($super, lineNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(lineNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, jsc.AST.NodeKind.FUNCTION_APPLY);
+	initialize: function($super, lineNumber, columnNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(lineNumber, columnNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, jsc.AST.NodeKind.FUNCTION_APPLY);
 	}
 });
 
 
 /** @class */
 jsc.AST.CallDotFunctionCallExpression = Object.define(jsc.AST.DotFunctionCallExpression, {
-	initialize: function($super, lineNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(lineNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, jsc.AST.NodeKind.FUNCTION_CALL);
+	initialize: function($super, lineNumber, columnNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(lineNumber, columnNumber, name, base, args, exceptionDivot, exceptionStartPosition, exceptionEndPosition, jsc.AST.NodeKind.FUNCTION_CALL);
 	}
 });
 
@@ -1995,8 +2021,8 @@ jsc.AST.CallDotFunctionCallExpression = Object.define(jsc.AST.DotFunctionCallExp
  * @class
  */
 jsc.AST.Statement = Object.define(jsc.AST.Node, {
-	initialize: function($super, kind, lineNumber) {
-		$super(kind, lineNumber);
+	initialize: function($super, kind, lineNumber, columnNumber) {
+		$super(kind, lineNumber, columnNumber);
 		
 		this.endLine = 0;
 	},
@@ -2008,17 +2034,17 @@ jsc.AST.Statement = Object.define(jsc.AST.Node, {
 	set startLine(value) {
 		this.lineNumber = value;
 	},
-	
-	get isEmpty() {
-		return (this.kind === jsc.AST.NodeKind.EMPTY);
+
+	get isStatement() {
+		return true;
 	}
 });
 
 
 /** @class */
 jsc.AST.ThrowableStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, kind, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(kind, lineNumber);
+	initialize: function($super, kind, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(kind, lineNumber, columnNumber);
 
 		this.exceptionDivot = jsc.Utils.valueOrDefault(exceptionDivot, -1);
 		this.exceptionStartPosition = jsc.Utils.valueOrDefault(exceptionStartPosition, -1);
@@ -2029,16 +2055,16 @@ jsc.AST.ThrowableStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.EmptyStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.EMPTY, lineNumber);
+	initialize: function($super, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.EMPTY, lineNumber, columnNumber);
 	}
 });
 
 
 /** @class */
 jsc.AST.ExpressionStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expr) {
-		$super(jsc.AST.NodeKind.EXPR_STATEMENT, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expr) {
+		$super(jsc.AST.NodeKind.EXPR_STATEMENT, lineNumber, columnNumber);
 
 		this.expression = expr;
 	}
@@ -2047,8 +2073,8 @@ jsc.AST.ExpressionStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.BlockStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, statements) {
-		$super(jsc.AST.NodeKind.BLOCK, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, statements) {
+		$super(jsc.AST.NodeKind.BLOCK, lineNumber, columnNumber);
 
 		this.statements = statements;
 	},
@@ -2061,8 +2087,8 @@ jsc.AST.BlockStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.IfStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, conditionExpression, ifBlock) {
-		$super(jsc.AST.NodeKind.IF, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, conditionExpression, ifBlock, kind) {
+		$super(jsc.Utils.valueOrDefault(kind, jsc.AST.NodeKind.IF), lineNumber, columnNumber);
 
 		this.conditionExpression = conditionExpression;
 		this.ifBlock = ifBlock;
@@ -2072,8 +2098,8 @@ jsc.AST.IfStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.IfElseStatement = Object.define(jsc.AST.IfStatement, {
-	initialize: function($super, lineNumber, conditionExpression, ifBlock, elseBlock) {
-		$super(jsc.AST.NodeKind.IF_ELSE, lineNumber, conditionExpression, ifBlock);
+	initialize: function($super, lineNumber, columnNumber, conditionExpression, ifBlock, elseBlock) {
+		$super(lineNumber, columnNumber, conditionExpression, ifBlock, jsc.AST.NodeKind.IF_ELSE);
 
 		this.elseBlock = elseBlock;
 	}
@@ -2082,8 +2108,8 @@ jsc.AST.IfElseStatement = Object.define(jsc.AST.IfStatement, {
 
 /** @class */
 jsc.AST.SwitchStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression, defaultClause, firstClauseList, secondClauseList) {
-		$super(jsc.AST.NodeKind.SWITCH, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, defaultClause, firstClauseList, secondClauseList) {
+		$super(jsc.AST.NodeKind.SWITCH, lineNumber, columnNumber);
 
 		this.expression = expression;
 		this.defaultClause = defaultClause;
@@ -2095,8 +2121,8 @@ jsc.AST.SwitchStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.TryStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, exceptionVarName, tryBlock, catchBlock, finallyBlock) {
-		$super(jsc.AST.NodeKind.TRY, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, exceptionVarName, tryBlock, catchBlock, finallyBlock) {
+		$super(jsc.AST.NodeKind.TRY, lineNumber, columnNumber);
 
 		this.exceptionVarName = exceptionVarName;
 		this.tryBlock = tryBlock;
@@ -2116,8 +2142,8 @@ jsc.AST.TryStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.ThrowStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.THROW, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.THROW, lineNumber, columnNumber);
 		
 		this.expression = expression;
 	}
@@ -2126,8 +2152,8 @@ jsc.AST.ThrowStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.ReturnStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.RETURN, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.RETURN, lineNumber, columnNumber);
 		
 		this.expression = expression;
 	}
@@ -2136,8 +2162,8 @@ jsc.AST.ReturnStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.BreakStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, name) {
-		$super(jsc.AST.NodeKind.BREAK, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name) {
+		$super(jsc.AST.NodeKind.BREAK, lineNumber, columnNumber);
 		
 		this.name = name;
 	}
@@ -2146,8 +2172,8 @@ jsc.AST.BreakStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.ContinueStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, name) {
-		$super(jsc.AST.NodeKind.CONTINUE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name) {
+		$super(jsc.AST.NodeKind.CONTINUE, lineNumber, columnNumber);
 		
 		this.name = name;
 	}
@@ -2156,16 +2182,16 @@ jsc.AST.ContinueStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.DebuggerStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.DEBUGGER, lineNumber);
+	initialize: function($super, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.DEBUGGER, lineNumber, columnNumber);
 	}
 });
 
 
 /** @class */
 jsc.AST.ConstStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.CONST_STATEMENT, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.CONST_STATEMENT, lineNumber, columnNumber);
 		
 		this.expression = expression;
 	}
@@ -2174,8 +2200,8 @@ jsc.AST.ConstStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.VarStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression) {
-		$super(jsc.AST.NodeKind.VAR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression) {
+		$super(jsc.AST.NodeKind.VAR, lineNumber, columnNumber);
 		
 		this.expression = expression;
 	}
@@ -2184,8 +2210,8 @@ jsc.AST.VarStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.LabelStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, name, statement) {
-		$super(jsc.AST.NodeKind.LABEL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, statement) {
+		$super(jsc.AST.NodeKind.LABEL, lineNumber, columnNumber);
 		
 		this.name = name;
 		this.statement = statement;
@@ -2195,8 +2221,8 @@ jsc.AST.LabelStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.WithStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression, statement, divot, length) {
-		$super(jsc.AST.NodeKind.VAR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, statement, divot, length) {
+		$super(jsc.AST.NodeKind.VAR, lineNumber, columnNumber);
 		
 		this.expression = expression;
 		this.statement = statement;
@@ -2208,8 +2234,8 @@ jsc.AST.WithStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.WhileStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression, statement) {
-		$super(jsc.AST.NodeKind.WHILE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, statement) {
+		$super(jsc.AST.NodeKind.WHILE, lineNumber, columnNumber);
 		
 		this.expression = expression;
 		this.statement = statement;
@@ -2219,8 +2245,8 @@ jsc.AST.WhileStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.DoWhileStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, expression, statement) {
-		$super(jsc.AST.NodeKind.DO_WHILE, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, statement) {
+		$super(jsc.AST.NodeKind.DO_WHILE, lineNumber, columnNumber);
 		
 		this.expression = expression;
 		this.statement = statement;
@@ -2230,8 +2256,8 @@ jsc.AST.DoWhileStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.ForStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, initializeExpression, conditionExpression, incrementExpression, statement, isFirstExpressionVarDeclaration) {
-		$super(jsc.AST.NodeKind.FOR, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, initializeExpression, conditionExpression, incrementExpression, statement, isFirstExpressionVarDeclaration) {
+		$super(jsc.AST.NodeKind.FOR, lineNumber, columnNumber);
 		
 		this.initializeExpression = initializeExpression;
 		this.conditionExpression = conditionExpression;
@@ -2244,8 +2270,8 @@ jsc.AST.ForStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.ForInStatement = Object.define(jsc.AST.ThrowableStatement, {
-	initialize: function($super, lineNumber, name, nameIsVarDeclaration, initializeExpression, leftExpression, rightExpression, statement, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
-		$super(jsc.AST.NodeKind.FOR_IN, lineNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
+	initialize: function($super, lineNumber, columnNumber, name, nameIsVarDeclaration, initializeExpression, leftExpression, rightExpression, statement, exceptionDivot, exceptionStartPosition, exceptionEndPosition) {
+		$super(jsc.AST.NodeKind.FOR_IN, lineNumber, columnNumber, exceptionDivot, exceptionStartPosition, exceptionEndPosition);
 		
 		this.name = name;
 		this.nameIsVarDeclaration = nameIsVarDeclaration;
@@ -2259,8 +2285,8 @@ jsc.AST.ForInStatement = Object.define(jsc.AST.ThrowableStatement, {
 
 /** @class */
 jsc.AST.FunctionDeclarationStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, lineNumber, name, functionNode, source, parameters) {
-		$super(jsc.AST.NodeKind.FUNCTION_DECL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, name, functionNode, source, parameters) {
+		$super(jsc.AST.NodeKind.FUNCTION_DECL, lineNumber, columnNumber);
 
 		this.functionNode = functionNode;
 		this.functionNode.finalize(source, name, parameters, jsc.AST.NodeKind.FUNCTION_DECL);
@@ -2274,8 +2300,8 @@ jsc.AST.FunctionDeclarationStatement = Object.define(jsc.AST.Statement, {
  * @class
  */
 jsc.AST.ScopedStatement = Object.define(jsc.AST.Statement, {
-	initialize: function($super, kind, lineNumber, inStrictMode) {
-		$super(kind, lineNumber);
+	initialize: function($super, kind, lineNumber, columnNumber, inStrictMode) {
+		$super(kind, lineNumber, columnNumber);
 		
 		inStrictMode = jsc.Utils.valueOrDefault(inStrictMode, false);
 		
@@ -2321,8 +2347,8 @@ jsc.AST.ScopedStatement = Object.define(jsc.AST.Statement, {
 
 /** @class */
 jsc.AST.EvalStatement = Object.define(jsc.AST.ScopedStatement, {
-	initialize: function($super, lineNumber) {
-		$super(jsc.AST.NodeKind.EVAL, lineNumber);
+	initialize: function($super, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.EVAL, lineNumber, columnNumber);
 	}
 });
 
@@ -2333,8 +2359,8 @@ jsc.AST.EvalStatement = Object.define(jsc.AST.ScopedStatement, {
  * @class
  */
 jsc.AST.FunctionNode = Object.define(jsc.AST.ScopedStatement, {
-	initialize: function($super, lineNumber, inStrictMode) {
-		$super(jsc.AST.NodeKind.FUNCTION, lineNumber, inStrictMode);
+	initialize: function($super, lineNumber, columnNumber, inStrictMode) {
+		$super(jsc.AST.NodeKind.FUNCTION, lineNumber, columnNumber, inStrictMode);
 
 		this.name = null;
 		this.inferredName = null;
@@ -2377,9 +2403,9 @@ jsc.AST.FunctionNode = Object.define(jsc.AST.ScopedStatement, {
  *
  * @class
  */
-jsc.AST.Script = Object.define(jsc.AST.ScopedStatement, {
-	initialize: function($super, source, lineNumber) {
-		$super(jsc.AST.NodeKind.SCRIPT, lineNumber);
+jsc.AST.ScriptNode = Object.define(jsc.AST.ScopedStatement, {
+	initialize: function($super, source, lineNumber, columnNumber) {
+		$super(jsc.AST.NodeKind.SCRIPT, lineNumber, columnNumber);
 		
 		this.source = source;
 	}
@@ -2397,8 +2423,8 @@ jsc.AST.Script = Object.define(jsc.AST.ScopedStatement, {
  * @class
  */
 jsc.AST.ArgumentListNode = Object.define(jsc.AST.Node, {
-	initialize: function($super, lineNumber, expression, nextNode) {
-		$super(jsc.AST.NodeKind.ARGUMENT_LIST, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, expression, nextNode) {
+		$super(jsc.AST.NodeKind.ARGUMENT_LIST, lineNumber, columnNumber);
 
 		this.expression = expression;
 		this.next = null;
@@ -2458,8 +2484,8 @@ jsc.AST.PropertyNode = Object.define({
  * @class
  */
 jsc.AST.PropertyListNode = Object.define(jsc.AST.Node, {
-	initialize: function($super, lineNumber, propNode, nextNode) {
-		$super(jsc.AST.NodeKind.PROPERTY_LIST, lineNumber);
+	initialize: function($super, lineNumber, columnNumber, propNode, nextNode) {
+		$super(jsc.AST.NodeKind.PROPERTY_LIST, lineNumber, columnNumber);
 
 		this.property = propNode;
 		this.next = null;
@@ -2537,10 +2563,11 @@ jsc.AST.VariableDeclaration = Object.define({
  * @class
  */
 jsc.AST.LabelInfo = Object.define({
-	initialize: function(name, begin, end) {
+	initialize: function(name, begin, end, columnNumber) {
 		this.name = name;
 		this.begin = begin;
 		this.end = end;
+		this.columnNumber = columnNumber;
 	}
 });
 
@@ -2634,10 +2661,11 @@ Object.extend(jsc.AST.ExpressionResultKind, {
 
 /** @class */
 jsc.AST.AssignmentInfo = Object.define({
-	initialize: function(expr, start, divot, count, op) {
+	initialize: function(expr, start, divot, columnNumber, count, op) {
 		this.expression = expr;
 		this.start = start;
 		this.divot = divot;
+		this.columnNumber = columnNumber;
 		this.count = count;
 		this.op = op;
 	}
@@ -2646,10 +2674,11 @@ jsc.AST.AssignmentInfo = Object.define({
 
 /** @class */
 jsc.AST.BinaryOperationInfo = Object.define({
-	initialize: function(start, divot, end, hasAssignments) {
+	initialize: function(start, divot, end, columnNumber, hasAssignments) {
 		this.start = start;
 		this.end = end;
 		this.divot = divot;
+		this.columnNumber = columnNumber;
 		this.hasAssignments = hasAssignments;
 	}
 });
@@ -2657,6 +2686,7 @@ jsc.AST.BinaryOperationInfo = Object.define({
 Object.extend(jsc.AST.BinaryOperationInfo, {
 	FromBinaryOperations: function(lhs, rhs) {
 		var info = new jsc.AST.BinaryOperationInfo();
+		info.columnNumber = lhs.columnNumber;
 		info.start = lhs.start;
 		info.divot = rhs.start;
 		info.end = rhs.end;
@@ -2709,6 +2739,53 @@ jsc.AST.VariableFlags = {
 	HAS_INITIALIZER	: 0x02
 };
 
+jsc.AST.Keyword = {
+	BREAK: 		"break",
+	CASE: 		"case",
+	CATCH: 		"catch",
+	CLASS: 		"class",
+	CONST: 		"const",
+	CONTINUE: 	"continue",
+	DEBUGGER: 	"debugger",
+	DEFAULT: 	"default",
+	DELETE: 	"delete",
+	DO: 		"do",
+	ELSE: 		"else",
+	ENUM: 		"enum",
+	EXPORT: 	"export",
+	EXTENDS: 	"extends",
+	FALSE: 		"false",
+	FINALLY: 	"finally",
+	FOR: 		"for",
+	FUNCTION: 	"function",
+	IF: 		"if",
+	IMPLEMENTS:	"implements",
+	IMPORT: 	"import",
+	IN: 		"in",
+	INSTANCEOF:	"instanceof",
+	INTERFACE: 	"interface",
+	LET: 		"let",
+	NEW: 		"new",
+	NULL: 		"null",
+	PACKAGE: 	"package",
+	PRIVATE: 	"private",
+	PROTECTED:	"protected",
+	PUBLIC: 	"public",
+	RETURN: 	"return",
+	STATIC: 	"static",
+	SUPER: 		"super",
+	SWITCH: 	"switch",
+	THIS: 		"this",
+	THROW: 		"throw",
+	TRUE: 		"true",
+	TRY: 		"try",
+	TYPEOF: 	"typeof",
+	VAR: 		"var",
+	VOID: 		"void",
+	WHILE: 		"while",
+	WITH: 		"with",
+	YIELD: 		"yield"
+};
 
 (function() {
 
@@ -2726,7 +2803,7 @@ jsc.AST.VariableFlags = {
 		"BITWISE_OR", "BITWISE_XOR", "BITWISE_NOT", "CONDITIONAL", "READ_MODIFY_RESOLVE", "READ_MODIFY_BRACKET", "READ_MODIFY_DOT", "ASSIGN_RESOLVE",
 		"ASSIGN_BRACKET", "ASSIGN_DOT", "ASSIGN_ERROR", "COMMA", "CONST_DECL", "CONST_STATEMENT", "BLOCK", "EMPTY", "DEBUGGER",
 		"EXPR_STATEMENT", "VAR", "IF", "IF_ELSE", "DO_WHILE", "WHILE", "FOR", "FOR_IN", "CONTINUE", "BREAK", "RETURN", "WITH", "LABEL",
-		"THROW", "TRY", "SCOPE", "SCRIPT", "EVAL", "FUNCTION", "FUNCTION_EXPR", "FUNCTION_DECL", "SWITCH"
+		"THROW", "TRY", "SCRIPT", "EVAL", "FUNCTION", "FUNCTION_EXPR", "FUNCTION_DECL", "SWITCH"
 	];
 	
 	jsc.Utils.createEnum(-1, nodeKinds, jsc.AST.NodeKind);
@@ -2769,6 +2846,25 @@ jsc.AST.VariableFlags = {
 		enumerable: true,
 		configurable: false,
 		writable: false
+	});
+
+
+	Object.extend(jsc.AST.NodeKind, {
+
+		getName: function(kind) {
+			var kinds = jsc.AST.NodeKind;
+
+			for(var k in kinds)
+			{
+				if(!kinds.hasOwnProperty(k))
+					continue;
+
+				if(kinds[k] === kind)
+					return k;
+			}
+
+			return "UNKNOWN";
+		}
 	});
 	
 	

@@ -3,31 +3,39 @@
 var jsc = require("../src/jsc");
 var path = require("path");
 var fs = require("fs");
-var file = path.join(path.dirname(module.filename), "playground-script.js");
+var srcFilePath = path.join(path.dirname(module.filename), "playground-script.js");
+var dstFilePath = path.join(path.dirname(module.filename), "playground-writer-output.js");
 
-fs.readFile(file, function(err, data) {
+fs.readFile(srcFilePath, function(err, data) {
 
-	var sc = new jsc.SourceCode(data.toString(), file);
-	var result = jsc.parse(sc, true);
+	jsc.parse(new jsc.SourceCode(data.toString(), srcFilePath), function(result, parseError) {
+		if(result)
+		{
+			var generator = new jsc.Generator(jsc.Writers.ES5());
+			var script = generator.run(result);
 
-	if(!result)
-		return;
-	
-	console.log("");
-	console.log("FEATURES: %d", result.features);
-	console.log("CONSTANT COUNT: %d", result.constantCount);
-	
-	console.log("\nSTATEMENTS:");
-	console.log(result.statements);
-	
-	console.log("\nFUNCTIONS:");
-	console.log(result.functions);
-	
-	console.log("\nVARIABLES:");
-	console.log(result.variables);
-	
-	console.log("\nCAPTURED VARIABLES:");
-	console.log(result.capturedVariables);
+			if(generator.hasErrors)
+			{
+				console.log("GENERATION ERRORS:");
+				console.log(generator.errors);
+				return;
+			}
+
+			fs.writeFile(dstFilePath, script, null, function(writeErr) {
+				if(writeErr)
+					console.error(writeErr);
+				else
+				{
+					console.log();
+					console.log("SCRIPT WRITTEN TO: " + dstFilePath);
+					console.log("-----------------------------------------------------------------");
+					console.log(script);
+					console.log("-----------------------------------------------------------------");
+				}
+			});
+		}
+
+	}, true);
 });
 
 ;(function() {

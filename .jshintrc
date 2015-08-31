@@ -5,7 +5,6 @@
 	"latedef": true,
 	"undef": true,
 	"unused": false,
-	"maxparams": 6,
 	"noarg": true,
 	"nocomma": true,
 	"nonew": true,

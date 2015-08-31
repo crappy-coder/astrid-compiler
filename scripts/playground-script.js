@@ -7,45 +7,70 @@
  * This is a test script for the playground.
  *
  ****************************************************************************/
- 
-var obj = new Object();
-obj.A = function() { return 1; }
 
-function B() {
-	return 2;
-}
- 
-function C() {
-	return function() { return 3; }
+ /* A: block comment */
+ /*
+    B block comment
+ */
+// single line comment
+
+var a = 1; // inline comment
+var b = 1+3*2;
+var c = true | false;
+var d = null;
+var e = this;
+var f = c === true ? 1 : 2;
+;;;
+
+a *= 10;
+a = 10 || ~11;
+a = -20;
+a = !a;
+
+{
+	a--;
+	--a;
 }
 
-function D() {
-	var f = function foo() {
-		return 4;
+if(a ? false : true)
+	a = 2.2;
+	
+while(--a);
+	
+do {
+	a++
+}
+while(a == 1);
+
+// if(d == null)
+	// d = 2.3;
+	
+// if(d === null) {
+	// d = 3.2;
+	// d *= 2;
+// }
+
+if(d == 0)
+	d = 1;
+else if(d == 1) {
+	d = 2;
+}
+else if(d == 2)
+	d = 3;
+else {
+	if(true == false)
+		d = 5;
+	else {
+		d = 6;
 	}
 	
-	return f();
+	d = 7;
 }
 
-var a1 = obj.A();
-var a2 = obj["A"]();
-var b = B();
-var c = C()();
-var d = D();
 
+/** bar **/
+var x = function foo(a, b, c) {
+	return x; // foo
+}; // shibby
 
-function Employee(a, b, c) {
-	var y = 2;
-
-	this.x = 1;
-}
-
-var e = new Employee(1, 2, 3);
-var x = e.x;
-
-function add(x, y)
-{
-	return x + y;
-}
-
-var a = add(1, 2);
+// boo boo
