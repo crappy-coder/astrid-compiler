@@ -28,7 +28,6 @@ jsc.Parser = Object.define({
 			statementDepth: 0,
 			allowsIn: true,
 			debugMode: false,
-			hasSyntaxBeenValidated: true,
 			error: null
 		};
 
@@ -442,6 +441,7 @@ jsc.Parser = Object.define({
 		var lastInitializer = null;
 		var nameBegin = 0;
 		var initBegin = 0;
+		var initColumn = 0;
 		var initEnd = 0;
 		
 		do
@@ -467,15 +467,17 @@ jsc.Parser = Object.define({
 			this.next();
 			
 			hasInitializer = this.match(jsc.Token.Kind.EQUAL);
-			
+			initColumn = this.tokenColumn;
+			initBegin = this.tokenBegin;
+
 			this.failWhenFalseInStrictMode(this.declareVariable(name), "Cannot declare a variable named '" + name + "' in strict mode.");
-			
 			context.addVariable(name, (hasInitializer || (!this.state.allowsIn && this.match(jsc.Token.Kind.IN))) ? jsc.AST.VariableFlags.HAS_INITIALIZER : jsc.AST.VariableFlags.NONE);
 
-			if(hasInitializer)
+			if(!hasInitializer)
+				node = context.createResolveExpression(name, initBegin, initColumn);
+			else
 			{
-				var initColumn = this.tokenColumn;
-				initBegin = this.tokenBegin;
+
 				varDivot = this.tokenBegin + 1;
 				
 				this.next();
@@ -489,12 +491,12 @@ jsc.Parser = Object.define({
 				this.failWhenNull(initializer);
 				
 				node = context.createAssignResolveExpression(name, initializer, initialAssignmentCount !== this.state.assignmentCount, varBegin, varDivot, this.lastTokenEnd, initColumn);
-				
-				if(varDeclExpr === null)
-					varDeclExpr = node;
-				else
-					varDeclExpr = context.combineCommaExpressions(varDeclExpr, node, initColumn);
 			}
+
+			if(varDeclExpr === null)
+				varDeclExpr = node;
+			else
+				varDeclExpr = context.combineCommaExpressions(varDeclExpr, node, initColumn);
 		}
 		while(this.match(jsc.Token.Kind.COMMA));
 
@@ -505,7 +507,8 @@ jsc.Parser = Object.define({
 			lastInitializer: lastInitializer,
 			nameBegin: nameBegin,
 			initBegin: initBegin,
-			initEnd: initEnd
+			initEnd: initEnd,
+			initColumn: initColumn
 		};
 	},
 	
@@ -891,7 +894,7 @@ jsc.Parser = Object.define({
 		endLine = this.tokenEndLine;
 		
 		this.next();
-		this.failWhenFalse(this.insertSemicolon);
+		this.failWhenFalse(this.insertSemicolon());
 		
 		return context.createContinueStatement(name, beginColumn, endColumn, beginLine, endLine, column);
 	},
@@ -1262,15 +1265,13 @@ jsc.Parser = Object.define({
 			
 			this.next();
 			this.consumeOrFail(jsc.Token.Kind.COLON);
-			
-			if(!this.state.hasSyntaxBeenValidated)
-			{
-				for(i = 0; i < labels.length; i++)
-					this.failWhenTrue(name === labels[i].name);
+
+			for(i = 0; i < labels.length; i++)
+				this.failWhenTrue(name === labels[i].name);
 					
-				this.failWhenTrue(this.findLabel(name) !== null);
-				labels.push(new jsc.AST.LabelInfo(name, beginColumn, endColumn, column));
-			}
+			this.failWhenTrue(this.findLabel(name) !== null);
+			labels.push(new jsc.AST.LabelInfo(name, beginColumn, endColumn, column));
+
 		} while(this.match(jsc.Token.Kind.IDENTIFIER));
 		
 		var isLoop = false;
@@ -1287,22 +1288,20 @@ jsc.Parser = Object.define({
 				break;
 		}
 		
-		if(!this.state.hasSyntaxBeenValidated)
-		{
-			for(i = 0; i < labels.length; i++)
-				this.pushLabel(labels[i].name, isLoop);
-		}
+		// push the labels onto the current scopes label stack so they
+		// can be validated while parsing the next statement(s)
+		for(i = 0; i < labels.length; i++)
+			this.pushLabel(labels[i].name, isLoop);
 		
 		statement = this.parseStatement(context);
-		
-		if(!this.state.hasSyntaxBeenValidated)
-		{
-			for(i = 0; i < labels.length; i++)
-				this.popLabel();
-		}
+
+		// pop off the previous labels
+		for(i = 0; i < labels.length; i++)
+			this.popLabel();
 		
 		this.failWhenNull(statement);
-		
+
+		// create a chain of statements for each label
 		for(i = 0; i < labels.length; i++)
 		{
 			var info = labels[labels.length - i - 1];

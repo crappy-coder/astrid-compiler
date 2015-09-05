@@ -73,13 +73,7 @@ jsc.AST.Context = Object.define({
 	},
 	
 	createVarStatement: function(expression, beginLine, endLine, columnNumber) {
-		var statement = null;
-
-		if(jsc.Utils.isNull(expression))
-			statement = new jsc.AST.EmptyStatement(this.lineNumber, columnNumber);
-		else
-			statement = new jsc.AST.VarStatement(this.lineNumber, columnNumber, expression);
-
+		var statement = new jsc.AST.VarStatement(this.lineNumber, columnNumber, expression);
 		this.setStatementLocation(statement, beginLine, endLine);
 
 		return statement;
@@ -962,6 +956,10 @@ jsc.AST.Node = Object.define({
 		return (this.kind === jsc.AST.NodeKind.IF || this.kind === jsc.AST.NodeKind.IF_ELSE);
 	},
 
+	get isExpression() {
+		return false;
+	},
+
 	get isStatement() {
 		return false;
 	},
@@ -997,10 +995,14 @@ jsc.AST.Expression = Object.define(jsc.AST.Node, {
 			resultKind: jsc.Utils.valueOrDefault(resultKind, jsc.AST.ExpressionResultKind.Unknown)
 		};
 	},
+
+	get isExpression() {
+		return true;
+	},
 	
 	get resultKind() {
 		return this.state.resultKind;
-	},
+	}
 
 });
 
@@ -1220,10 +1222,10 @@ jsc.AST.ConstantDeclarationExpression = Object.define(jsc.AST.Expression, {
 
 		this.name = name;
 		this.initializeExpression = initializeExpression;
-		this.nextConstantExpression = null;
+		this.next = null;
 
 		if(!jsc.Utils.isNull(nextExpression))
-			nextExpression.nextConstantExpression = this;
+			nextExpression.next = this;
 	},
 	
 	get hasInitializer() {
@@ -2222,7 +2224,7 @@ jsc.AST.LabelStatement = Object.define(jsc.AST.ThrowableStatement, {
 /** @class */
 jsc.AST.WithStatement = Object.define(jsc.AST.Statement, {
 	initialize: function($super, lineNumber, columnNumber, expression, statement, divot, length) {
-		$super(jsc.AST.NodeKind.VAR, lineNumber, columnNumber);
+		$super(jsc.AST.NodeKind.WITH, lineNumber, columnNumber);
 		
 		this.expression = expression;
 		this.statement = statement;
@@ -2752,12 +2754,14 @@ jsc.AST.Keyword = {
 	DO: 		"do",
 	ELSE: 		"else",
 	ENUM: 		"enum",
+	EVAL: 		"eval",
 	EXPORT: 	"export",
 	EXTENDS: 	"extends",
 	FALSE: 		"false",
 	FINALLY: 	"finally",
 	FOR: 		"for",
 	FUNCTION: 	"function",
+	GET:		"get",
 	IF: 		"if",
 	IMPLEMENTS:	"implements",
 	IMPORT: 	"import",
@@ -2772,6 +2776,7 @@ jsc.AST.Keyword = {
 	PROTECTED:	"protected",
 	PUBLIC: 	"public",
 	RETURN: 	"return",
+	SET:		"set",
 	STATIC: 	"static",
 	SUPER: 		"super",
 	SWITCH: 	"switch",

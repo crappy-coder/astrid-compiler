@@ -19,16 +19,20 @@ jsc.Writers.Writer = Object.define({
 			indentLevel: 0,
 			indentString: "",
 			lastNode: null,
+			lastStatement: null,
+			lastExpression: null,
 			lastKeyword: null,
 			pendingNewLineCount: 0,
-			pendingSemicolonCount: 0,
-			pendingSemicolon: false
+			pendingSemicolonCount: 0
 		};
 	},
 
 	writeNode: function(astNode) {
 		if(jsc.Utils.isNull(astNode))
 			return;
+
+		if(this.state.lastStatement && astNode.isStatement && (astNode.lineNumber - this.state.lastStatement.lineNumber) > 1 && this.state.pendingSemicolonCount > 0)
+			this.writeLine();
 
 		switch(astNode.kind)
 		{
@@ -364,14 +368,54 @@ jsc.Writers.Writer = Object.define({
 		}
 
 		this.state.lastNode = astNode;
+
+		if(astNode.isStatement)
+			this.state.lastStatement = astNode;
+
+		if(astNode.isExpression)
+			this.state.lastExpression = astNode;
 	},
 
 	writeArgumentListNode: function(node) {
-		this.printNode(node);
+		for(var a = node; a !== null; a = a.next)
+		{
+			this.writeNode(a.expression);
+
+			if(!jsc.Utils.isNull(a.next))
+			{
+				this.write(',');
+				this.writeSpace();
+			}
+		}
 	},
 
 	writeArrayExpression: function(node) {
-		this.printNode(node);
+		var i;
+
+		this.write('[');
+
+		for(var el = node.elements; el !== null; el = el.nextElement)
+		{
+			// write a space only between two elements that contain a value
+			if(el !== node.elements && el.elision === 0)
+				this.writeSpace();
+
+			// write in empty elements
+			for(i = 0; i < el.elision; i++)
+				this.write(',');
+
+			// write the element value
+			this.writeNode(el.expression);
+
+			if(el.nextElement || node.elision)
+				this.write(',');
+		}
+
+		// write the remaining empties
+		for(i = 0; i < node.elision; i++)
+			this.write(',');
+
+		this.write(']');
 	},
 
 	writeAssignBracketExpression: function(node) {
@@ -413,7 +457,7 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeBooleanExpression: function(node) {
-		this.write(node.value ? "true" : "false");
+		this.write(node.value ? jsc.AST.Keyword.TRUE : jsc.AST.Keyword.FALSE);
 	},
 
 	writeBracketAccessorExpression: function(node) {
@@ -422,11 +466,33 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeBreakStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.BREAK);
+
+		if(!jsc.Utils.isStringNullOrEmpty(node.name))
+		{
+			this.writeSpace();
+			this.write(node.name);
+		}
+
+		this.writeSemicolon();
 	},
 
 	writeCommaExpression: function(node) {
-		this.printNode(node);
+		for(var i = 0; i < node.count; i++)
+		{
+			var expression = node.get(i);
+
+			if(!jsc.Utils.isNull(expression))
+			{
+				if(i !== 0)
+				{
+					this.write(',');
+					this.writeSpace();
+				}
+
+				this.writeNode(expression);
+			}
+		}
 	},
 
 	writeConditionalExpression: function(node) {
@@ -446,36 +512,73 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeConstantDeclarationExpression: function(node) {
-		this.printNode(node);
+		for(var c = node; c !== null; c = c.next)
+		{
+			this.write(c.name);
+
+			if(c.hasInitializer)
+			{
+				this.writeAssignmentOperator(jsc.AST.AssignmentOperatorKind.EQUAL);
+				this.writeNode(c.initializeExpression);
+			}
+
+			if(!jsc.Utils.isNull(c.next))
+			{
+				this.write(',');
+				this.writeSpace();
+			}
+		}
 	},
 
 	writeConstStatement: function(node) {
-		this.printNode(node);
+		this.write(jsc.AST.Keyword.CONST);
+		this.writeSpace();
+		this.writeNode(node.expression);
+		this.writeSemicolon();
 	},
 
 	writeContinueStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.CONTINUE);
+
+		if(!jsc.Utils.isStringNullOrEmpty(node.name))
+		{
+			this.writeSpace();
+			this.write(node.name);
+		}
+
+		this.writeSemicolon();
 	},
 
 	writeDebuggerStatement: function(node) {
-		this.write("debugger");
+		void(node);
+
+		this.writeKeyword(jsc.AST.Keyword.DEBUGGER);
 		this.writeSemicolon();
 	},
 
 	writeDeleteBracketExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.DELETE);
+		this.writeSpace();
+		this.writeNode(node.base);
+		this.writeBracketAccessor(node.subscript);
 	},
 
 	writeDeleteDotExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.DELETE);
+		this.writeSpace();
+		this.writeDotAccessor(node);
 	},
 
 	writeDeleteResolveExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.DELETE);
+		this.writeSpace();
+		this.write(node.name);
 	},
 
 	writeDeleteValueExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.DELETE);
+		this.writeSpace();
+		this.writeNode(node.expression);
 	},
 
 	writeDotAccessorExpression: function(node) {
@@ -492,13 +595,17 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeEmptyStatement: function(node) {
+		void(node);
+
 		// TODO: add option to omit empty statements
 		this.writeSemicolon(
 			!this.isLastNodeOfKind(jsc.AST.NodeKind.EMPTY));
 	},
 
 	writeEvalStatement: function(node) {
-		this.printNode(node);
+		void(node);
+
+		throw new Error("Eval statement is not supported.");
 	},
 	
 	writeExpressionStatement: function(node) {
@@ -507,19 +614,85 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeForStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.FOR);
+		this.writeSpace();
+		this.write('(');
+
+		if(node.isFirstExpressionVarDeclaration)
+		{
+			this.writeKeyword(jsc.AST.Keyword.VAR);
+			this.writeSpace();
+		}
+
+		this.writeNode(node.initializeExpression);
+		this.writeSemicolon(false);
+
+		if(!jsc.Utils.isNull(node.conditionExpression))
+		{
+			this.writeSpace();
+			this.writeNode(node.conditionExpression);
+		}
+
+		this.writeSemicolon(false);
+
+		if(!jsc.Utils.isNull(node.incrementExpression))
+		{
+			this.writeSpace();
+			this.writeNode(node.incrementExpression);
+		}
+
+		this.write(')');
+		this.writeBlock(node.statement);
 	},
 
 	writeForInStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.FOR);
+		this.writeSpace();
+		this.write('(');
+
+		if(node.nameIsVarDeclaration)
+		{
+			this.writeKeyword(jsc.AST.Keyword.VAR);
+			this.writeSpace();
+		}
+
+		if(jsc.Utils.isNull(node.initializeExpression))
+		{
+			this.writeNode(node.leftExpression);
+			this.writeSpace();
+		}
+		else
+		{
+			this.writeNode(node.initializeExpression);
+			this.writeSpace();
+		}
+
+		this.writeKeyword(jsc.AST.Keyword.IN);
+		this.writeSpace();
+
+		this.writeNode(node.rightExpression);
+
+		this.write(')');
+		this.writeBlock(node.statement);
 	},
 
-	writeFunctionNode: function(node) {
-		this.write("function %s", node.name);
+	writeFunctionNode: function(node, isGetterOrSetter) {
+		isGetterOrSetter = jsc.Utils.valueOrDefault(isGetterOrSetter, false);
 
-		this.write("(");
+		if(!isGetterOrSetter)
+		{
+			this.writeKeyword(jsc.AST.Keyword.FUNCTION);
+
+			if(!jsc.Utils.isStringNullOrEmpty(node.name))
+			{
+				this.writeSpace();
+				this.write(node.name);
+			}
+		}
+
+		this.write('(');
 		this.writeList(node.parameterNames);
-		this.write(")");
+		this.write(')');
 
 		this.writeSpace();
 
@@ -529,20 +702,17 @@ jsc.Writers.Writer = Object.define({
 		this.writeStatements(node);
 		this.popIndent();
 
-		// function expression will be terminated by a semicolon, so don't write
-		// a newline after the curly brace
-		if(node.ownerKind === jsc.AST.NodeKind.FUNCTION_EXPR)
-			this.write('}');
-		else
-			this.writeLine('}');
+		this.write('}');
 	},
 
 	writeApplyDotFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeDotAccessor(node);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeCallDotFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeDotAccessor(node);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeFunctionDeclarationStatement: function(node) {
@@ -555,23 +725,29 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeBracketFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeNode(node.base);
+		this.writeBracketAccessor(node.subscript);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeDotFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeDotAccessor(node);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeEvalFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.EVAL);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeResolveFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.write(node.name);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeValueFunctionCallExpression: function(node) {
-		this.printNode(node);
+		this.writeNode(node.expression);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeIfStatement: function(node) {
@@ -589,7 +765,12 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeLabelStatement: function(node) {
-		this.printNode(node);
+		this.write(node.name);
+		this.writeLine(':');
+
+		this.pushIndent();
+		this.writeNode(node.statement);
+		this.popIndent();
 	},
 
 	writeLogicalNotExpression: function(node) {
@@ -621,11 +802,16 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeNewExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.NEW);
+		this.writeSpace();
+		this.writeNode(node.expression);
+		this.writeParenthesizedExpression(node.args);
 	},
 
 	writeNullExpression: function(node) {
-		this.write("null");
+		void(node);
+
+		this.writeKeyword(jsc.AST.Keyword.NULL);
 	},
 
 	writeNumberExpression: function(node) {
@@ -633,7 +819,11 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeObjectLiteralExpression: function(node) {
-		this.printNode(node);
+		this.writeLine('{');
+		this.pushIndent();
+		this.writeNode(node.properties);
+		this.popIndent();
+		this.write('}');
 	},
 
 	writePostfixBracketExpression: function(node) {
@@ -679,7 +869,35 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writePropertyListNode: function(node) {
-		this.printNode(node);
+		for(var p = node; p !== null; p = p.next)
+		{
+			if(this.writePropertyNode(p.property) && p.next)
+				this.write(',');
+
+			this.writeLine();
+		}
+	},
+
+	writePropertyNode: function(node) {
+		if(jsc.Utils.isNull(node))
+			return false;
+
+		if(node.isGetter || node.isSetter)
+		{
+			this.writeKeyword(node.isGetter ? jsc.AST.Keyword.GET : jsc.AST.Keyword.SET);
+			this.writeSpace();
+			this.write(node.name);
+			this.writeFunctionNode(node.expression.functionNode, true);
+		}
+		else
+		{
+			this.write(node.name);
+			this.write(':');
+			this.writeSpace();
+			this.writeNode(node.expression);
+		}
+
+		return true;
 	},
 
 	writeReadModifyBracketExpression: function(node) {
@@ -702,7 +920,10 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeRegExExpression: function(node) {
-		this.printNode(node);
+		this.write('/');
+		this.write(node.pattern);
+		this.write('/');
+		this.write(node.flags);
 	},
 
 	writeResolveExpression: function(node) {
@@ -722,46 +943,117 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeStringExpression: function(node) {
-		this.write("\"%s\"", node.value);
+		this.writeString(node.value);
 	},
 
 	writeSwitchStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.SWITCH);
+		this.writeParenthesizedExpression(node.expression);
+		this.writeSpace();
+		this.writeLine('{');
+
+		this.pushIndent();
+		this.writeSwitchClauseListNode(jsc.AST.Keyword.CASE, node.firstClauseList);
+		this.writeSwitchClauseListNode(jsc.AST.Keyword.DEFAULT, node.defaultClause);
+		this.writeSwitchClauseListNode(jsc.AST.Keyword.CASE, node.secondClauseList);
+		this.popIndent();
+		this.writeLine('}');
+	},
+
+	writeSwitchClauseListNode: function(keyword, node) {
+		for(var c = node; c !== null; c = c.next)
+		{
+			this.writeKeyword(keyword);
+
+			if(keyword !== jsc.AST.Keyword.DEFAULT)
+				this.writeSpace();
+
+			if(!jsc.Utils.isNull(c.statements) && c.statements.length && this.isNodeOfKind(c.statements[0], jsc.AST.NodeKind.BLOCK))
+			{
+				this.writeNode(c.expression);
+				this.write(':');
+				this.writeSpace();
+
+				this.writeStatements(c);
+			}
+			else
+			{
+				this.writeNode(c.expression);
+				this.writeLine(':');
+
+				this.pushIndent();
+				this.writeStatements(c);
+				this.popIndent();
+			}
+		}
 	},
 
 	writeThisExpression: function(node) {
+		void(node);
+
 		this.write("this");
 	},
 
 	writeThrowStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.THROW);
+		this.writeSpace();
+		this.writeNode(node.expression);
+		this.writeSemicolon();
 	},
 
 	writeTryStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.TRY);
+		this.writeBlock(node.tryBlock);
+
+		if(!jsc.Utils.isNull(node.catchBlock))
+		{
+			this.writeKeyword(jsc.AST.Keyword.CATCH);
+			this.writeParenthesizedExpression(node.exceptionVarName);
+			this.writeBlock(node.catchBlock);
+		}
+
+		if(!jsc.Utils.isNull(node.finallyBlock))
+		{
+			this.writeKeyword(jsc.AST.Keyword.FINALLY);
+			this.writeBlock(node.finallyBlock);
+		}
 	},
 
 	writeTypeOfResolveExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.TYPEOF);
+		this.writeSpace();
+		this.write(node.name);
 	},
 
 	writeTypeOfValueExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.TYPEOF);
+		this.writeSpace();
+		this.writeNode(node.expression);
 	},
 
 	writeUnaryPlusExpression: function(node) {
-		this.printNode(node);
+		this.write('+');
+		this.writeNode(node.expression);
 	},
 
 	writeVarStatement: function(node) {
-		this.write("var");
+		this.write(jsc.AST.Keyword.VAR);
 		this.writeSpace();
 		this.writeNode(node.expression);
 		this.writeSemicolon();
 	},
 
 	writeVoidExpression: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.VOID);
+
+		if(node.expression.isNumber)
+		{
+			this.writeParenthesizedExpression(node.expression);
+			return;
+		}
+
+		this.writeSpace();
+		this.writeNode(node.expression);
 	},
 
 	writeWhileStatement: function(node) {
@@ -771,7 +1063,9 @@ jsc.Writers.Writer = Object.define({
 	},
 
 	writeWithStatement: function(node) {
-		this.printNode(node);
+		this.writeKeyword(jsc.AST.Keyword.WITH);
+		this.writeParenthesizedExpression(node.expression);
+		this.writeBlock(node.statement);
 	},
 
 	writeStatements: function(node) {
@@ -815,9 +1109,14 @@ jsc.Writers.Writer = Object.define({
 		this.write(']');
 	},
 
-	writeParenthesizedExpression: function(node) {
+	writeParenthesizedExpression: function(nodeOrString) {
 		this.write('(');
-		this.writeNode(node);
+
+		if(jsc.Utils.isString(nodeOrString))
+			this.write(nodeOrString);
+		else
+			this.writeNode(nodeOrString);
+
 		this.write(')');
 	},
 
@@ -994,7 +1293,6 @@ jsc.Writers.Writer = Object.define({
 		if(withLineBreak)
 			this.writeLine();
 
-		this.state.pendingSemicolon = true;
 		this.state.pendingSemicolonCount++;
 	},
 
@@ -1009,6 +1307,20 @@ jsc.Writers.Writer = Object.define({
 			str = jsc.Utils.format.apply(null, arguments);
 
 		this.writeImpl(str);
+	},
+
+	writeString: function(str) {
+		str = str.replace(/([\\])/g, '\\$1');
+		str = str.replace(this.options.stringStyle === jsc.Writers.Writer.StringStyle.DoubleQuote ? /(["])/g : /(['])/g, '\\$1');
+		str = str.replace(/[\f]/g, "\\f");
+		str = str.replace(/[\b]/g, "\\b");
+		str = str.replace(/[\n]/g, "\\n");
+		str = str.replace(/[\t]/g, "\\t");
+		str = str.replace(/[\r]/g, "\\r");
+
+		this.write(this.options.stringStyle);
+		this.write(str);
+		this.write(this.options.stringStyle);
 	},
 
 	writeLine: function(str) {
@@ -1040,12 +1352,6 @@ jsc.Writers.Writer = Object.define({
 			this.writeImpl(';');
 
 		this.state.pendingSemicolonCount = 0;
-		return;
-		if(this.state.pendingSemicolon)
-		{
-			this.writeImpl(";");
-			this.state.pendingSemicolon = false;
-		}
 	},
 
 	finish: function() {
@@ -1097,6 +1403,11 @@ Object.extend(jsc.Writers.Writer, {
 	NewLineStyle: {
 		Windows: '\r\n',
 		Unix: '\n'
+	},
+
+	StringStyle: {
+		SingleQuote: '\'',
+		DoubleQuote: '"'
 	}
 });
 
@@ -1108,9 +1419,10 @@ Object.extend(jsc.Writers.Writer, {
  * @class
  */
 jsc.Writers.Writer.Options = Object.define({
-	initialize: function(tabSize, newLineStyle) {
+	initialize: function(tabSize, newLineStyle, stringStyle) {
 		this.tabSize = jsc.Utils.valueOrDefault(tabSize, 4);
 		this.newLineStyle = jsc.Utils.valueOrDefault(newLineStyle, jsc.Writers.Writer.NewLineStyle.Unix);
+		this.stringStyle = jsc.Utils.valueOrDefault(stringStyle, jsc.Writers.Writer.StringStyle.DoubleQuote);
 	}
 });
 
