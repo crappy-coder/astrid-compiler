@@ -4,6 +4,7 @@ var parser = require("./parser");
 var source = require("./source-code");
 var text = require("./text");
 var token = require("./token");
+var variableEnv = require("./variable-environment");
 var utils = require("./utils");
 
 ;(function() {
@@ -18,7 +19,9 @@ var utils = require("./utils");
 		TextPosition: text.TextPosition,
 		TextSpan: text.TextSpan,
 		TextUtils: text.TextUtils,
-		Token: token,
+		Token: token.Token,
+		TokenLocation: token.TokenLocation,
+		VariableEnvironment: variableEnv,
 		Utils: utils,
 		Optimizers: require("./optimizers"),
 		Writers: require("./writers")
@@ -26,13 +29,13 @@ var utils = require("./utils");
 	
 	Object.extend(jsc, {
 		parse: function(source, callback, debugMode) {
-			var parser = new jsc.Parser(source, null, false);
+			var parser = new jsc.Parser(source, false);
 			var parserResult = null;
 
 			parser.debugMode = jsc.Utils.valueOrDefault(debugMode, false);
 			parserResult = parser.parse();
 
-			callback(parserResult, parser.hasError ? parser.error : null);
+			callback(parserResult, parser.hasError ? parser.errorDetails : null);
 		}
 	});
 	

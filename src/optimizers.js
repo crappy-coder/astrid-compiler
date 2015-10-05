@@ -32,7 +32,7 @@
  *   - Peephole Algebraic Laws / Combine Operations
  *
  *       Bitwise Not Transform (perform bitwise operation at compile time and use the result):
- *         x = ~20   ->   x = -21;
+ *         x = ~20   ->   x = -21;0
  */
 
 module.exports = {

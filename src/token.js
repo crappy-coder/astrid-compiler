@@ -1,14 +1,53 @@
 var jsc = require("./jsc");
 
+jsc.TokenLocation = Object.define({
+	initialize: function() {
+		this.line = 0;
+		this.lineBegin = 0;
+		this.begin = 0;
+		this.end = 0;
+	},
+
+	get beginColumn() {
+		return (this.begin - this.lineBegin);
+	},
+
+	get endColumn() {
+		return (this.end - this.lineBegin);
+	},
+
+	toString: function() {
+		return jsc.Utils.format("%d [%d,%d]", this.line, this.beginColumn, this.endColumn);
+	}
+});
+
 jsc.Token = Object.define({
 	initialize: function() {
 		this.kind = jsc.Token.Kind.UNKNOWN;
+		this.value = null;
+
+		// TODO: enable location, begin and end positions in the lexer
+		//this.location = new jsc.TokenLocation();
+		//this.begin = new jsc.TextPosition();
+		//this.end = new jsc.TextPosition();
+
 		this.begin = 0;
 		this.end = 0;
 		this.beginLine = 0;
 		this.endLine = 0;
 		this.column = 0;
-		this.value = null;
+	},
+
+	get isKeyword() {
+		return ((this.kind & jsc.Token.KEYWORD) === jsc.Token.KEYWORD);
+	},
+
+	get isReserved() {
+		return (this.kind === jsc.Token.Kind.RESERVED || this.kind === jsc.Token.Kind.RESERVED_STRICT);
+	},
+
+	clone: function() {
+		return jsc.Utils.cloneObject(this);
 	}
 });
 
@@ -36,6 +75,30 @@ Object.extend(jsc.Token, {
 		}
 
 		return "INVALID";
+	},
+
+	getOperatorDescription: function(kind, isPrefix) {
+		switch(kind)
+		{
+			case jsc.Token.Kind.PLUSPLUS:
+			case jsc.Token.Kind.PLUSPLUS_AUTO:
+				return (isPrefix ? "prefix-increment" : "increment");
+			case jsc.Token.Kind.MINUSMINUS:
+			case jsc.Token.Kind.MINUSMINUS_AUTO:
+				return (isPrefix ? "prefix-decrement" : "decrement");
+			case jsc.Token.Kind.EXCLAMATION:
+				return "logical-not";
+			case jsc.Token.Kind.TILDE:
+				return "bitwise-not";
+			case jsc.Token.Kind.TYPEOF:
+				return "typeof";
+			case jsc.Token.Kind.VOID:
+				return "void";
+			case jsc.Token.Kind.DELETE:
+				return "delete";
+		}
+
+		return "error:unknown";
 	}
 });
 
@@ -65,25 +128,31 @@ Object.extend(jsc.Token, {
 		FOR						: [ 6 + keyword                                                 ,             "for"],
 		NEW						: [ 7 + keyword                                                 ,             "new"],
 		VAR						: [ 8 + keyword                                                 ,             "var"],
-		CONST					: [ 9 + keyword                                                 ,           "const"],
-		CONTINUE				: [10 + keyword                                                 ,        "continue"],
-		FUNCTION				: [11 + keyword                                                 ,        "function"],
-		RETURN					: [12 + keyword                                                 ,          "return"],
-		IF						: [13 + keyword                                                 ,              "if"],
-		THIS					: [14 + keyword                                                 ,            "this"],
-		DO						: [15 + keyword                                                 ,              "do"],
-		WHILE					: [16 + keyword                                                 ,           "while"],
-		SWITCH					: [17 + keyword                                                 ,          "switch"],
-		WITH					: [18 + keyword                                                 ,            "with"],
-		RESERVED				: [19 + keyword                                                 ,                ""],
-		RESERVED_STRICT			: [20 + keyword                                                 ,                ""],
-		THROW					: [21 + keyword                                                 ,           "throw"],
-		TRY						: [22 + keyword                                                 ,             "try"],
-		CATCH					: [23 + keyword                                                 ,           "catch"],
-		FINALLY					: [24 + keyword                                                 ,         "finally"],
-		DEBUGGER				: [25 + keyword                                                 ,        "debugger"],
-		ELSE					: [26 + keyword                                                 ,            "else"],
-		
+		LET						: [ 9 + keyword                                                 ,             "let"],
+		CONST					: [10 + keyword                                                 ,           "const"],
+		CONTINUE				: [11 + keyword                                                 ,        "continue"],
+		FUNCTION				: [12 + keyword                                                 ,        "function"],
+		RETURN					: [13 + keyword                                                 ,          "return"],
+		IF						: [14 + keyword                                                 ,              "if"],
+		THIS					: [15 + keyword                                                 ,            "this"],
+		DO						: [16 + keyword                                                 ,              "do"],
+		WHILE					: [17 + keyword                                                 ,           "while"],
+		SWITCH					: [18 + keyword                                                 ,          "switch"],
+		WITH					: [19 + keyword                                                 ,            "with"],
+		RESERVED				: [20 + keyword                                                 ,                ""],
+		RESERVED_STRICT			: [21 + keyword                                                 ,                ""],
+		THROW					: [22 + keyword                                                 ,           "throw"],
+		TRY						: [23 + keyword                                                 ,             "try"],
+		CATCH					: [24 + keyword                                                 ,           "catch"],
+		FINALLY					: [25 + keyword                                                 ,         "finally"],
+		DEBUGGER				: [26 + keyword                                                 ,        "debugger"],
+		ELSE					: [27 + keyword                                                 ,            "else"],
+		IMPORT					: [28 + keyword                                                 ,          "import"],
+		EXPORT					: [29 + keyword                                                 ,          "export"],
+		CLASS					: [30 + keyword                                                 ,           "class"],
+		EXTENDS					: [31 + keyword                                                 ,         "extends"],
+		SUPER					: [32 + keyword                                                 ,           "super"],
+
 	//  PUNCTUATORS
 		OPEN_BRACE				: [     punctuator                                              ,               "{"],
 		CLOSE_BRACE				: [ 1 + punctuator                                              ,               "}"],
@@ -93,27 +162,31 @@ Object.extend(jsc.Token, {
 		CLOSE_BRACKET			: [ 5 + punctuator                                              ,               "]"],
 		COMMA					: [ 6 + punctuator                                              ,               ","],
 		QUESTION				: [ 7 + punctuator                                              ,               "?"],
-		NUMBER					: [ 8 + punctuator                                              ,                ""],
-		IDENTIFIER				: [ 9 + punctuator                                              ,                ""],
-		STRING					: [10 + punctuator                                              ,                ""],
-		SEMICOLON				: [11 + punctuator                                              ,               ";"],
-		COLON					: [12 + punctuator                                              ,               ":"],
-		DOT						: [13 + punctuator                                              ,               "."],
-		ERROR					: [14 + punctuator                                              ,                ""],
-		EOF						: [15 + punctuator                                              ,                ""],
-		EQUAL					: [16 + punctuator                                              ,               "="],
-		PLUS_EQUAL				: [17 + punctuator                                              ,              "+="],
-		MINUS_EQUAL				: [18 + punctuator                                              ,              "-="],
-		MULTIPLY_EQUAL			: [19 + punctuator                                              ,              "*="],
-		DIVIDE_EQUAL			: [20 + punctuator                                              ,              "/="],
-		LSHIFT_EQUAL			: [21 + punctuator                                              ,             "<<="],
-		RSHIFT_EQUAL			: [22 + punctuator                                              ,             ">>="],
-		RSHIFT_EQUAL_UNSIGNED	: [23 + punctuator                                              ,            ">>>="],
-		AND_EQUAL				: [24 + punctuator                                              ,              "&="],
-		MOD_EQUAL				: [25 + punctuator                                              ,              "%="],
-		XOR_EQUAL				: [26 + punctuator                                              ,              "^="],
-		OR_EQUAL				: [27 + punctuator                                              ,              "|="],
-		LAST_UNTAGGED			: [28 + punctuator                                              ,                ""],
+		INTEGER					: [ 8 + punctuator                                              ,                ""],
+		DOUBLE					: [ 9 + punctuator                                              ,                ""],
+		IDENTIFIER				: [10 + punctuator                                              ,                ""],
+		STRING					: [11 + punctuator                                              ,                ""],
+		TEMPLATE				: [12 + punctuator                                              ,                ""],
+		SEMICOLON				: [13 + punctuator                                              ,               ";"],
+		COLON					: [14 + punctuator                                              ,               ":"],
+		DOT						: [15 + punctuator                                              ,               "."],
+		ERROR					: [16 + punctuator                                              ,                ""],
+		EOF						: [17 + punctuator                                              ,                ""],
+		EQUAL					: [18 + punctuator                                              ,               "="],
+		PLUS_EQUAL				: [19 + punctuator                                              ,              "+="],
+		MINUS_EQUAL				: [20 + punctuator                                              ,              "-="],
+		MULTIPLY_EQUAL			: [21 + punctuator                                              ,              "*="],
+		DIVIDE_EQUAL			: [22 + punctuator                                              ,              "/="],
+		LSHIFT_EQUAL			: [23 + punctuator                                              ,             "<<="],
+		RSHIFT_EQUAL			: [24 + punctuator                                              ,             ">>="],
+		RSHIFT_EQUAL_UNSIGNED	: [25 + punctuator                                              ,            ">>>="],
+		AND_EQUAL				: [26 + punctuator                                              ,              "&="],
+		MOD_EQUAL				: [27 + punctuator                                              ,              "%="],
+		XOR_EQUAL				: [28 + punctuator                                              ,              "^="],
+		OR_EQUAL				: [29 + punctuator                                              ,              "|="],
+		DOTDOTDOT				: [30 + punctuator                                              ,             "..."],
+		ARROW_FUNC				: [31 + punctuator                                              ,              "=>"],
+		LAST_UNTAGGED			: [32 + punctuator                                              ,                ""],
 		
 	//  BINARY OPERATORS
 		OR						: [     ( 1 << precedence) | ( 1 << precedence_shift)           ,              "||"],
@@ -172,51 +245,54 @@ Object.extend(jsc.Token, {
 	}
 	
 	identifiers = {
-		"null"		 : kinds.NULL,
-		"true"		 : kinds.TRUE,
-		"false"		 : kinds.FALSE,
-		"break"		 : kinds.BREAK,
-		"case"		 : kinds.CASE,
-		"catch"		 : kinds.CATCH,
-		"const"		 : kinds.CONST,
-		"default"	 : kinds.DEFAULT,
-		"finally"	 : kinds.FINALLY,
-		"for"		 : kinds.FOR,
-		"instanceof" : kinds.INSTANCEOF,
-		"new"		 : kinds.NEW,
-		"var"		 : kinds.VAR,
-		"continue"	 : kinds.CONTINUE,
-		"function"	 : kinds.FUNCTION,
-		"return"	 : kinds.RETURN,
-		"void"		 : kinds.VOID,
-		"delete"	 : kinds.DELETE,
-		"if"		 : kinds.IF,
-		"this"		 : kinds.THIS,
-		"do"		 : kinds.DO,
-		"while"		 : kinds.WHILE,
-		"else"		 : kinds.ELSE,
-		"in"		 : kinds.IN,
-		"switch"	 : kinds.SWITCH,
-		"throw"		 : kinds.THROW,
-		"try"		 : kinds.TRY,
-		"typeof"	 : kinds.TYPEOF,
-		"with"		 : kinds.WITH,
-		"debugger"	 : kinds.DEBUGGER,
-		"class"		 : kinds.RESERVED,
-		"enum"		 : kinds.RESERVED,
-		"export"	 : kinds.RESERVED,
-		"extends"	 : kinds.RESERVED,
-		"import"	 : kinds.RESERVED,
-		"super"		 : kinds.RESERVED,
-		"implements" : kinds.RESERVED_STRICT,
-		"interface"	 : kinds.RESERVED_STRICT,
-		"let"		 : kinds.RESERVED_STRICT,
-		"package"	 : kinds.RESERVED_STRICT,
-		"private"	 : kinds.RESERVED_STRICT,
-		"protected"	 : kinds.RESERVED_STRICT,
-		"public"	 : kinds.RESERVED_STRICT,
-		"static"	 : kinds.RESERVED_STRICT,
-		"yield"		 : kinds.RESERVED_STRICT,
+		"null"			: kinds.NULL,
+		"true"			: kinds.TRUE,
+		"false"			: kinds.FALSE,
+		"break"			: kinds.BREAK,
+		"case"			: kinds.CASE,
+		"catch"			: kinds.CATCH,
+		"const"			: kinds.CONST,
+		"default"		: kinds.DEFAULT,
+		"finally"		: kinds.FINALLY,
+		"for"			: kinds.FOR,
+		"instanceof"	: kinds.INSTANCEOF,
+		"new"			: kinds.NEW,
+		"var"			: kinds.VAR,
+		"continue"		: kinds.CONTINUE,
+		"function"		: kinds.FUNCTION,
+		"return"		: kinds.RETURN,
+		"void"			: kinds.VOID,
+		"delete"		: kinds.DELETE,
+		"if"			: kinds.IF,
+		"this"			: kinds.THIS,
+		"do"			: kinds.DO,
+		"while"			: kinds.WHILE,
+		"else"			: kinds.ELSE,
+		"in"			: kinds.IN,
+		"switch"		: kinds.SWITCH,
+		"throw"			: kinds.THROW,
+		"try"			: kinds.TRY,
+		"typeof"		: kinds.TYPEOF,
+		"with"			: kinds.WITH,
+		"debugger"		: kinds.DEBUGGER,
+		"export"		: kinds.EXPORT,
+		"import"		: kinds.IMPORT,
+		"class"			: kinds.CLASS,
+		"extends"		: kinds.EXTENDS,
+		"super"			: kinds.SUPER,
+
+		"await"			: kinds.RESERVED,
+		"enum"			: kinds.RESERVED,
+		"let"			: kinds.RESERVED,
+		"yield"			: kinds.RESERVED,
+
+		"implements"	: kinds.RESERVED_STRICT,
+		"package"		: kinds.RESERVED_STRICT,
+		"protected"		: kinds.RESERVED_STRICT,
+		"static"		: kinds.RESERVED_STRICT,
+		"interface"		: kinds.RESERVED_STRICT,
+		"private"		: kinds.RESERVED_STRICT,
+		"public"		: kinds.RESERVED_STRICT,
 	};
 	
 	Object.extend(jsc.Token, {
@@ -227,4 +303,7 @@ Object.extend(jsc.Token, {
 	
 })();
 
-module.exports = jsc.Token;
+module.exports = {
+	Token: jsc.Token,
+	TokenLocation: jsc.TokenLocation
+};

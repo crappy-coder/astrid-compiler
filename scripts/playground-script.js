@@ -26,6 +26,8 @@ var h, i = 0;
 var j = 1, k = 2;
 var l,m,n;
 var str = "abc\n\t\"'xyz\"";
+var x = [1, 2];
+var y = [3, ...x, 0];
 var obj = {
 	a: 1,
 	b: "2",
@@ -58,18 +60,20 @@ function bar() {
 	}
 }
 
-function foo(a, b, c) {
+function foo(...theArgs) {
 	return function bar(x, y, z) {
 		return (a + x * b + y * c + z);
 	};
 };
+
+x = foo(0, ...x, 1);
 
 var rxa = /ab+c/g;
 var rxb = /(?:)/;
 
 const o = 1, p = 2;
 const q = true;
-const r;
+const r = "foo";
 
 void(0);
 

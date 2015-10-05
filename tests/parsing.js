@@ -73,7 +73,7 @@ var tests = [
 					test.ifError(err);
 
 					jsc.parse(new jsc.SourceCode(data.toString(), path.resolve(file)), function(result, parseErr) {
-						test.ok(result, parseErr);
+						test.ok(result, parseErr && parseErr.message);
 					});
 
 					test.done();

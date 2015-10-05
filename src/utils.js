@@ -17,7 +17,7 @@ jsc.Utils = {
 		return jsc.Utils.extendObject({}, srcObj);
 	},
 
-	createEnum: function(startValue, keys, destObj, useFlagValues, useZeroFlag) {
+	createEnum: function(startValue, keys, destObj) {
 		var obj = destObj || {};
 
 		keys.forEach(function(k, i) {
@@ -84,7 +84,7 @@ jsc.Utils = {
 			
 			return objs.join(" ");
 		}
-		
+
 		str = String(str).replace(/%[sdijxX%]/g, function(m) {
 			if(m === "%%") {
 				return "%";
@@ -93,7 +93,7 @@ jsc.Utils = {
 			if(i >= argsLen) {
 				return m;
 			}
-			
+
 			switch(m) {
 				case "%s":
 					return String(args[i++]);
@@ -117,12 +117,41 @@ jsc.Utils = {
 					return m;
 			}
 		});
+
+		var hasStyle = false;
+
+		str = String(str).replace(/%[c]/g, function(m) {
+			if(i >= argsLen) {
+				return m;
+			}
+
+			switch(m) {
+				case "%c":
+				{
+					var style = args[i++];
+					var styleParams = [0];
+
+					hasStyle = true;
+
+					if(jsc.Utils.isNotNull(style) && jsc.Utils.isArray(style.params))
+					{
+						styleParams = style.params.filter(function(value) {
+							return jsc.Utils.isInteger(value);
+						});
+					}
+
+					return "\u001b[" + styleParams.join(';') + "m";
+				}
+				default:
+					return m;
+			}
+		});
 		
 		for(var a = args[i]; i < argsLen; a = args[++i]) {
 			str += " " + formatValue(a);
 		}
 
-		return str;
+		return str + (hasStyle ? "\u001b[0m" : "");
 	},
 	
 	valueOrDefault: function(value, defaultValue) {
@@ -147,19 +176,35 @@ jsc.Utils = {
 	isUndefined: function(value) {
 		return (value === void(0));
 	},
+
+	isNotUndefined: function(value) {
+		return !jsc.Utils.isUndefined(value);
+	},
 	
 	isNull: function(value, includeUndefined) {
 		includeUndefined = jsc.Utils.valueOrDefault(includeUndefined, true);
 		
 		return (includeUndefined ? jsc.Utils.isNullOrUndefined(value) : value === null);
 	},
+
+	isNotNull: function(value, includeUndefined) {
+		return !jsc.Utils.isNull(value, includeUndefined);
+	},
 	
 	isNullOrUndefined: function(value) {
 		return (value === null || jsc.Utils.isUndefined(value));
 	},
+
+	isNotNullOrUndefined: function(value) {
+		return !jsc.Utils.isNullOrUndefined(value);
+	},
 	
 	isStringNullOrEmpty: function(value) {
 		return (jsc.Utils.isNullOrUndefined(value) || (jsc.Utils.isString(value) && value.length === 0));
+	},
+
+	isStringNotNullOrEmpty: function(value) {
+		return !jsc.Utils.isStringNullOrEmpty(value);
 	},
 
 	isArray: function(value) {
@@ -268,8 +313,111 @@ jsc.Utils.HashMap = klass.Create({
 			return "\u25CF" + key;
 			
 		return key + "";
+	},
+
+	copyTo: function(other) {
+		var keys = this.keys;
+
+		keys.forEach(function(k) {
+			other.set(k, this.get(k));
+		}, this);
 	}
 });
+
+jsc.Utils.Format = {
+	Reset: 0,
+
+	Bold: 1,
+	Underline: 4,
+
+	Color: {
+		Black: 0,
+		Red: 1,
+		Green: 2,
+		Yellow: 3,
+		Blue: 4,
+		Magenta: 5,
+		Cyan: 6,
+		White: 7,
+		Default: 9,
+
+		Normal: {
+			Foreground: 30,
+			Background: 40
+		},
+
+		Light: {
+			Foreground: 90,
+			Background: 100
+		}
+	}
+};
+
+jsc.Utils.FormatStyle = {
+	append: function(param) {
+		var obj = Object.create(jsc.Utils.FormatStyle, {
+			params: { writable: true, enumerable: true, value: (this.params ? this.params.slice() : []) }
+		});
+
+		obj.params.push(param);
+
+		return obj;
+	},
+
+	setColor: function(color, asBackground, asLightColor) {
+		asBackground = jsc.Utils.valueOrDefault(asBackground, false);
+		asLightColor = jsc.Utils.valueOrDefault(asLightColor, false);
+
+		if(asBackground)
+			return this.append((asLightColor ? jsc.Utils.Format.Color.Light.Background : jsc.Utils.Format.Color.Normal.Background) + color);
+
+		return this.append((asLightColor ? jsc.Utils.Format.Color.Light.Foreground : jsc.Utils.Format.Color.Normal.Foreground) + color);
+	},
+
+	get Reset() {
+		return this.append(jsc.Utils.Format.Reset);
+	},
+
+	get Bold() {
+		return this.append(jsc.Utils.Format.Bold);
+	},
+
+	get Underline() {
+		return this.append(jsc.Utils.Format.Underline);
+	},
+
+	Black: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Black, asBackground, asLightColor);
+	},
+
+	Red: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Red, asBackground, asLightColor);
+	},
+
+	Green: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Green, asBackground, asLightColor);
+	},
+
+	Yellow: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Yellow, asBackground, asLightColor);
+	},
+
+	Blue: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Blue, asBackground, asLightColor);
+	},
+
+	Magenta: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Magenta, asBackground, asLightColor);
+	},
+
+	Cyan: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.Cyan, asBackground, asLightColor);
+	},
+
+	White: function(asBackground, asLightColor) {
+		return this.setColor(jsc.Utils.Format.Color.White, asBackground, asLightColor);
+	}
+};
 
 (function() {
 	

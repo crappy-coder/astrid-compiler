@@ -118,8 +118,8 @@ jsc.Writers.Writer = Object.define({
 				this.writeConstantDeclarationExpression(astNode);
 				break;
 
-			case jsc.AST.NodeKind.CONST_STATEMENT:
-				this.writeConstStatement(astNode);
+			case jsc.AST.NodeKind.DECL_STATEMENT:
+				this.writeDeclarationStatement(astNode);
 				break;
 
 			case jsc.AST.NodeKind.CONTINUE:
@@ -350,10 +350,6 @@ jsc.Writers.Writer = Object.define({
 				this.writeUnaryPlusExpression(astNode);
 				break;
 
-			case jsc.AST.NodeKind.VAR:
-				this.writeVarStatement(astNode);
-				break;
-
 			case jsc.AST.NodeKind.VOID:
 				this.writeVoidExpression(astNode);
 				break;
@@ -364,6 +360,11 @@ jsc.Writers.Writer = Object.define({
 
 			case jsc.AST.NodeKind.WITH:
 				this.writeWithStatement(astNode);
+				break;
+			default:
+				console.log("-------------- NOT IMPLEMENTED --------------");
+				this.printNode(astNode);
+				console.log("---------------------------------------------");
 				break;
 		}
 
@@ -530,11 +531,18 @@ jsc.Writers.Writer = Object.define({
 		}
 	},
 
-	writeConstStatement: function(node) {
-		this.write(jsc.AST.Keyword.CONST);
+	writeDeclarationStatement: function(node) {
+
+		// TODO: determine if we have a var, let or const here
+		this.write(jsc.AST.Keyword.VAR);
 		this.writeSpace();
 		this.writeNode(node.expression);
 		this.writeSemicolon();
+
+		//this.write(jsc.AST.Keyword.CONST);
+		//this.writeSpace();
+		//this.writeNode(node.expression);
+		//this.writeSemicolon();
 	},
 
 	writeContinueStatement: function(node) {
@@ -1034,13 +1042,6 @@ jsc.Writers.Writer = Object.define({
 	writeUnaryPlusExpression: function(node) {
 		this.write('+');
 		this.writeNode(node.expression);
-	},
-
-	writeVarStatement: function(node) {
-		this.write(jsc.AST.Keyword.VAR);
-		this.writeSpace();
-		this.writeNode(node.expression);
-		this.writeSemicolon();
 	},
 
 	writeVoidExpression: function(node) {

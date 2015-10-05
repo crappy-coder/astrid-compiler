@@ -15,7 +15,6 @@ jsc.Lexer = Object.define({
 			lastLinePosition: 0,
 			columnNumber: 0,
 			lastColumnNumber: 0,
-			isReparsing: false,
 			isLineBegin: true,
 			hasLineTerminator: false,
 			error: null,
@@ -114,15 +113,6 @@ jsc.Lexer = Object.define({
 	// gets whether or not there is a current line terminator
 	get hasLineTerminator() {
 		return this.state.hasLineTerminator;
-	},
-
-
-	// gets or sets whether or not we are reparsing
-	get isReparsing() {
-		return this.state.isReparsing;
-	},
-	set isReparsing(value) {
-		this.state.isReparsing = value;
 	},
 
 
@@ -558,6 +548,17 @@ jsc.Lexer = Object.define({
 
 						if(!jsc.TextUtils.isDigit(this.ch))
 						{
+							// '...'
+							if(this.ch === '.' && this.peekChar(1) === '.')
+							{
+								this.next();
+								this.next();
+
+								tokKind = jsc.Token.Kind.DOTDOTDOT;
+								break loop;
+							}
+
+							// '.'
 							tokKind = jsc.Token.Kind.DOT;
 							break loop;
 						}
@@ -626,7 +627,7 @@ jsc.Lexer = Object.define({
 						if((this.ch === 'x' || this.ch === 'X') && jsc.TextUtils.isHexDigit(this.peekChar(1)))
 						{
 							this.parseHex(tok);
-							tokKind = jsc.Token.Kind.NUMBER;
+							tokKind = jsc.Token.Kind.DOUBLE;
 							validateNumericLiteral = true;
 							break;
 						}
@@ -645,7 +646,7 @@ jsc.Lexer = Object.define({
 										break;
 									}
 
-									tokKind = jsc.Token.Kind.NUMBER;
+									tokKind = jsc.Token.Kind.DOUBLE;
 									validateNumericLiteral = true;
 									break;
 								}
@@ -657,8 +658,8 @@ jsc.Lexer = Object.define({
 					{
 						inNumber = true;
 
-						if(tokKind !== jsc.Token.Kind.NUMBER)
-							tokKind = jsc.Token.Kind.NUMBER;
+						if(tokKind !== jsc.Token.Kind.DOUBLE)
+							tokKind = jsc.Token.Kind.DOUBLE;
 
 						break;
 					}
@@ -720,7 +721,7 @@ jsc.Lexer = Object.define({
 						}
 
 						tok.value = parseFloat(this.chBuffer.join(""));
-						tokKind = jsc.Token.Kind.NUMBER;
+						tokKind = jsc.Token.Kind.DOUBLE;
 					}
 
 					validateNumericLiteral = true;
@@ -1499,7 +1500,6 @@ jsc.Lexer = Object.define({
 	},
 
 	clear: function() {
-		this.state.isReparsing = false;
 		this.chBuffer = [];
 	},
 

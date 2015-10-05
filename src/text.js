@@ -28,39 +28,42 @@ Object.extend(jsc.TextSpan, {
 
 
 jsc.TextPosition = Object.define({
-	initialize: function(line, column) {
+	initialize: function(line, offset, lineBeginOffset) {
 		this.line = line;
-		this.column = column;
+		this.lineBeginOffset = lineBeginOffset;
+		this.offset = offset;
 	},
 
-	add: function(line, column) {
-		this.line += jsc.Utils.valueOrDefault(line, 0);
-		this.column += jsc.Utils.valueOrDefault(column, 0);
+	get column() {
+		return (this.offset - this.lineBeginOffset);
 	},
 
-	subtract: function(line, column) {
-		this.line -= jsc.Utils.valueOrDefault(line, 0);
-		this.column -= jsc.Utils.valueOrDefault(column, 0);
+	add: function(offset) {
+		return new jsc.TextPosition(this.line, this.offset + offset, this.lineBeginOffset);
+	},
+
+	subtract: function(offset) {
+		return new jsc.TextPosition(this.line, this.offset - offset, this.lineBeginOffset);
 	},
 
 	isEqualTo: function(other) {
-		return (this.line === other.line && this.column === other.column);
+		return (this.line === other.line && this.offset === other.offset && this.lineBeginOffset === other.lineBeginOffset);
 	},
 
 	isGreaterThan: function(other) {
 		return (
-			(this.line >= other.line && this.column > other.column) ||
-			(this.column >= other.column && this.line > other.line));
+			(this.line >= other.line && this.offset > other.offset) ||
+			(this.offset >= other.offset && this.line > other.line));
 	},
 
 	isLessThan: function(other) {
 		return (
-			(this.line <= other.line && this.column < other.column) ||
-			(this.column <= other.column && this.line < other.line));
+			(this.line <= other.line && this.offset < other.offset) ||
+			(this.offset <= other.offset && this.line < other.line));
 	},
 	
 	toString: function() {
-		return jsc.Utils.format("%d,%d", this.line, this.column);
+		return jsc.Utils.format("%d,%d", this.line, this.offset - this.lineBeginOffset);
 	}
 });
 
@@ -303,7 +306,7 @@ Object.extend(jsc.TextBuffer, {
 
 jsc.TextUtils = {
 	isWhitespace: function(ch) {
-		return (ch === '\u0020' || ch === '\u0009' || ch === '\u000B' || ch === '\u000C' || ch === '\u00A0');
+		return (ch === '\u0020' || ch === '\u0009' || ch === '\u000B' || ch === '\u000C' || ch === '\u00A0' || ch === '\u180E' || ch === '\uFEFF');
 	},
 	
 	isLineTerminator: function(ch) {

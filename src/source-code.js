@@ -30,12 +30,6 @@ jsc.SourceCode = Object.define({
 	},
 
 	toSourceCode: function(braceBegin, braceEnd, beginLine) {
-		if(this.buffer.getChar(braceBegin) !== '{')
-			throw new Error("Expected an opening brace at " + braceBegin + ".");
-
-		if(this.buffer.getChar(braceEnd) !== '}')
-			throw new Error("Expected an closing brace at " + braceEnd + ".");
-
 		return new jsc.SourceCode(this.source, this.url, beginLine, braceBegin, braceEnd+1);
 	},
 	
