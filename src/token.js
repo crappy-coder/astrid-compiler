@@ -1,5 +1,7 @@
 var jsc = require("./jsc");
+require("./utils");
 
+/** @class */
 jsc.TokenLocation = Object.define({
 	initialize: function() {
 		this.line = 0;
@@ -16,46 +18,68 @@ jsc.TokenLocation = Object.define({
 		return (this.end - this.lineBegin);
 	},
 
+	copyTo: function(other) {
+		other.line = this.line;
+		other.lineBegin = this.lineBegin;
+		other.begin = this.begin;
+		other.end = this.end;
+	},
+
+	clone: function() {
+		var loc = new jsc.TokenLocation();
+		this.copyTo(loc);
+
+		return loc;
+	},
+
 	toString: function() {
 		return jsc.Utils.format("%d [%d,%d]", this.line, this.beginColumn, this.endColumn);
 	}
 });
 
+/** @class */
 jsc.Token = Object.define({
 	initialize: function() {
 		this.kind = jsc.Token.Kind.UNKNOWN;
 		this.value = null;
-
-		// TODO: enable location, begin and end positions in the lexer
-		//this.location = new jsc.TokenLocation();
-		//this.begin = new jsc.TextPosition();
-		//this.end = new jsc.TextPosition();
-
-		this.begin = 0;
-		this.end = 0;
-		this.beginLine = 0;
-		this.endLine = 0;
-		this.column = 0;
+		this.valueInfo = new jsc.TextPosition();
+		this.location = new jsc.TokenLocation();
+		this.begin = new jsc.TextPosition();
+		this.end = new jsc.TextPosition();
 	},
 
 	get isKeyword() {
-		return ((this.kind & jsc.Token.KEYWORD) === jsc.Token.KEYWORD);
+		return !!(this.kind & jsc.Token.KEYWORD);
 	},
 
 	get isReserved() {
 		return (this.kind === jsc.Token.Kind.RESERVED || this.kind === jsc.Token.Kind.RESERVED_STRICT);
 	},
 
+	get isError() {
+		return !!(this.kind & jsc.Token.Kind.ERROR);
+	},
+
 	clone: function() {
-		return jsc.Utils.cloneObject(this);
+		var tok = new jsc.Token();
+		tok.kind = this.kind;
+		tok.value = this.value;
+		tok.valueInfo = this.valueInfo.clone();
+		tok.location = this.location.clone();
+		tok.begin = this.begin.clone();
+		tok.end = this.end.clone();
+
+		return tok;
 	}
 });
 
-jsc.Token.IN_PRECEDENCE 	= 0x04;
-jsc.Token.PRECEDENCE 		= 0x08;
-jsc.Token.PRECEDENCE_MASK 	= 0x0F << jsc.Token.PRECEDENCE;
-jsc.Token.UNARY 			= 0x40;
-jsc.Token.KEYWORD 			= 0x80;
+jsc.Token.IN_PRECEDENCE 		= 0x04;
+jsc.Token.PRECEDENCE 			= 0x08;
+jsc.Token.PRECEDENCE_MASK 		= 0x0F << jsc.Token.PRECEDENCE;
+jsc.Token.UNARY 				= 0x40;
+jsc.Token.KEYWORD 				= 0x80;
+jsc.Token.ERROR 				= 0x01 << (jsc.Token.IN_PRECEDENCE + jsc.Token.PRECEDENCE + 7);
+jsc.Token.UNTERMINATED_ERROR	= jsc.Token.ERROR << 1;
 
 Object.extend(jsc.Token, {
 
@@ -107,6 +131,8 @@ Object.extend(jsc.Token, {
 	var unary = jsc.Token.UNARY;
 	var precedence = jsc.Token.PRECEDENCE;
 	var precedence_shift = jsc.Token.PRECEDENCE + jsc.Token.IN_PRECEDENCE;
+	var error = jsc.Token.ERROR;
+	var unterminated_error = jsc.Token.ERROR | jsc.Token.UNTERMINATED_ERROR;
 	var punctuator = 0;
 	var identifiers = null;
 	var kinds = {};
@@ -170,23 +196,22 @@ Object.extend(jsc.Token, {
 		SEMICOLON				: [13 + punctuator                                              ,               ";"],
 		COLON					: [14 + punctuator                                              ,               ":"],
 		DOT						: [15 + punctuator                                              ,               "."],
-		ERROR					: [16 + punctuator                                              ,                ""],
-		EOF						: [17 + punctuator                                              ,                ""],
-		EQUAL					: [18 + punctuator                                              ,               "="],
-		PLUS_EQUAL				: [19 + punctuator                                              ,              "+="],
-		MINUS_EQUAL				: [20 + punctuator                                              ,              "-="],
-		MULTIPLY_EQUAL			: [21 + punctuator                                              ,              "*="],
-		DIVIDE_EQUAL			: [22 + punctuator                                              ,              "/="],
-		LSHIFT_EQUAL			: [23 + punctuator                                              ,             "<<="],
-		RSHIFT_EQUAL			: [24 + punctuator                                              ,             ">>="],
-		RSHIFT_EQUAL_UNSIGNED	: [25 + punctuator                                              ,            ">>>="],
-		AND_EQUAL				: [26 + punctuator                                              ,              "&="],
-		MOD_EQUAL				: [27 + punctuator                                              ,              "%="],
-		XOR_EQUAL				: [28 + punctuator                                              ,              "^="],
-		OR_EQUAL				: [29 + punctuator                                              ,              "|="],
-		DOTDOTDOT				: [30 + punctuator                                              ,             "..."],
-		ARROW_FUNC				: [31 + punctuator                                              ,              "=>"],
-		LAST_UNTAGGED			: [32 + punctuator                                              ,                ""],
+		EOF						: [16 + punctuator                                              ,                ""],
+		EQUAL					: [17 + punctuator                                              ,               "="],
+		PLUS_EQUAL				: [18 + punctuator                                              ,              "+="],
+		MINUS_EQUAL				: [19 + punctuator                                              ,              "-="],
+		MULTIPLY_EQUAL			: [20 + punctuator                                              ,              "*="],
+		DIVIDE_EQUAL			: [21 + punctuator                                              ,              "/="],
+		LSHIFT_EQUAL			: [22 + punctuator                                              ,             "<<="],
+		RSHIFT_EQUAL			: [23 + punctuator                                              ,             ">>="],
+		RSHIFT_EQUAL_UNSIGNED	: [24 + punctuator                                              ,            ">>>="],
+		AND_EQUAL				: [25 + punctuator                                              ,              "&="],
+		MOD_EQUAL				: [26 + punctuator                                              ,              "%="],
+		XOR_EQUAL				: [27 + punctuator                                              ,              "^="],
+		OR_EQUAL				: [28 + punctuator                                              ,              "|="],
+		DOTDOTDOT				: [29 + punctuator                                              ,             "..."],
+		ARROW_FUNC				: [30 + punctuator                                              ,              "=>"],
+		LAST_UNTAGGED			: [31 + punctuator                                              ,                ""],
 		
 	//  BINARY OPERATORS
 		OR						: [     ( 1 << precedence) | ( 1 << precedence_shift)           ,              "||"],
@@ -224,7 +249,24 @@ Object.extend(jsc.Token, {
 	//  UNARY KEYWORD OPERATORS
 		TYPEOF					: [6 + unary | keyword                                          ,          "typeof"],
 		VOID					: [7 + unary | keyword                                          ,            "void"],
-		DELETE					: [8 + unary | keyword                                          ,          "delete"]
+		DELETE					: [8 + unary | keyword                                          ,          "delete"],
+
+		ERROR											: [ 0 | error                           ,                ""],
+		ERROR_IDENTIFIER_ESCAPE_UNTERMINATED 			: [ 0 | unterminated_error              ,                ""],
+		ERROR_IDENTIFIER_ESCAPE_INVALID 				: [ 1 | error                           ,                ""],
+		ERROR_IDENTIFIER_UNICODE_ESCAPE_UNTERMINATED	: [ 2 | unterminated_error              ,                ""],
+		ERROR_IDENTIFIER_UNICODE_ESCAPE_INVALID 		: [ 3 | error                           ,                ""],
+		ERROR_NUMERIC_LITERAL_UNTERMINATED 				: [ 4 | unterminated_error              ,                ""],
+		ERROR_NUMERIC_LITERAL_INVALID 					: [ 5 | error                           ,                ""],
+		ERROR_STRING_LITERAL_UNTERMINATED 				: [ 6 | unterminated_error              ,                ""],
+		ERROR_STRING_LITERAL_INVALID 					: [ 7 | error                           ,                ""],
+		ERROR_TEMPLATE_LITERAL_UNTERMINATED 			: [ 8 | unterminated_error              ,                ""],
+		ERROR_TEMPLATE_LITERAL_INVALID 					: [ 9 | error                           ,                ""],
+		ERROR_PRIVATE_NAME_INVALID 						: [10 | error                           ,                ""],
+		ERROR_MULTILINE_COMMENT_UNTERMINATED 			: [11 | unterminated_error              ,                ""],
+		ERROR_OCTAL_NUMBER_UNTERMINATED 				: [12 | unterminated_error              ,                ""],
+		ERROR_HEX_NUMBER_UNTERMINATED 					: [13 | unterminated_error              ,                ""],
+		ERROR_BINARY_NUMBER_UNTERMINATED 				: [14 | unterminated_error              ,                ""]
 	};
 	
 	for(var s in kindNameMap)

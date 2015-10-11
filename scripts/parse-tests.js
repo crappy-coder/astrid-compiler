@@ -44,7 +44,22 @@ var files = [
 	"./tests/files/multiplicative-operators.js",
 	"./tests/files/equality-operators.js",
 	"./tests/files/logical-operators.js",
-	"./tests/files/function-rest-parameters.js"
+	"./tests/files/function-rest-parameters.js",
+	"./tests/files/import-all.js",
+	"./tests/files/import-default-member.js",
+	"./tests/files/import-default-member-with-all.js",
+	"./tests/files/import-default-member-with-members.js",
+	"./tests/files/import-member.js",
+	"./tests/files/import-member-as-alias.js",
+	"./tests/files/import-members.js",
+	"./tests/files/import-members-as-alias.js",
+	"./tests/files/import-module.js",
+	"./tests/files/import-name.js",
+	"./tests/files/export-default.js",
+	"./tests/files/export-name.js",
+	"./tests/files/export-names.js",
+	"./tests/files/class.js",
+	"./tests/files/class-extends.js"
 ];
 
 function parseFile(filePath) {

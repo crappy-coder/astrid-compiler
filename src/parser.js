@@ -5,6 +5,7 @@ require("./token");
 require("./variable-environment");
 require("./utils");
 
+
 /**
  * The JavaScript source parser.
  *
@@ -20,10 +21,7 @@ jsc.Parser = Object.define({
 			defaultConstructorKind: jsc.Utils.valueOrDefault(defaultConstructorKind, jsc.Parser.ConstructorKind.NONE),
 			lastIdentifier: null,
 			lastFunctionName: null,
-			lastLine: 1,
-			lastColumn: 1,
-			lastTokenBegin: 0,
-			lastTokenEnd: 0,
+			lastTokenEndPosition: new jsc.TextPosition(),
 			assignmentCount: 0,
 			constantCount: 0,
 			nonLHSCount: 0,
@@ -90,35 +88,47 @@ jsc.Parser = Object.define({
 	},
 
 	get tokenString() {
-		return this.sourceCode.toString(this.tok.begin, this.tok.end);
+		return this.sourceCode.getString(this.tokenBegin, this.tokenEnd);
 	},
 	
 	get tokenBegin() {
-		return this.tok.begin;
+		return this.tok.location.begin;
+	},
+
+	get tokenBeginPosition() {
+		return this.tok.begin.clone();
 	},
 	
 	get tokenEnd() {
-		return this.tok.end;
+		return this.tok.begin.begin;
 	},
 
-	get tokenBeginLine() {
-		return this.tok.beginLine;
+	get tokenEndPosition() {
+		return this.tok.end.clone();
 	},
 
-	get tokenEndLine() {
-		return this.tok.endLine;
+	get tokenLine() {
+		return this.tok.location.line;
+	},
+
+	get tokenLineBegin() {
+		return this.tok.location.lineBegin;
 	},
 
 	get tokenColumn() {
-		return this.tok.column;
+		return (this.tokenBegin - this.tokenLineBegin);
+	},
+
+	get tokenLocation() {
+		return this.tok.location.clone();
+	},
+
+	get lastTokenLocation() {
+		return this.lexer.lastTokenLocation.clone();
 	},
 	
-	get lastTokenBegin() {
-		return this.state.lastTokenBegin;
-	},
-	
-	get lastTokenEnd() {
-		return this.state.lastTokenEnd;
+	get lastTokenEndPosition() {
+		return this.state.lastTokenEndPosition.clone();
 	},
 	
 	get canBreak() {
@@ -161,10 +171,12 @@ jsc.Parser = Object.define({
 		if(inStrictMode)
 			scope.strictMode = true;
 
-		this.next();
+		this.tok.location.line = this.sourceCode.beginLine;
+		this.tok.location.lineBegin = this.sourceCode.begin;
+		this.tok.location.begin = this.sourceCode.begin;
+		this.tok.location.end = this.sourceCode.begin;
 
-		this.lexer.lastLineNumber = this.tokenEndLine;
-		this.lexer.lastColumnNumber = this.tokenColumn;
+		this.next();
 	},
 
 	parse: function() {
@@ -172,6 +184,10 @@ jsc.Parser = Object.define({
 		var errorLine = 0;
 		var errorColumn = 0;
 		var errorMessage = "";
+		var beginLocation = this.tokenLocation;
+		var beginColumn = this.sourceCode.beginColumn - 1;
+		var endLocation = new jsc.TokenLocation();
+		var endColumn = 0;
 
 		try
 		{
@@ -195,19 +211,30 @@ jsc.Parser = Object.define({
 				errorMessage = lexError ? lexError : errorMessage;
 
 				this.statements = null;
-
-				throw new Error(jsc.Utils.format("[%d, %d] - %s", errorLine, errorColumn, errorMessage));
 			}
 
-			program = new jsc.AST.ScriptNode(this.sourceCode, this.lexer.lastLineNumber, this.lexer.lastColumnNumber, this.inStrictMode);
-			program.startLine = this.sourceCode.startLine;
-			program.endLine = this.state.lastLine;
-			program.constantCount = this.state.constantCount;
-			program.features = this.features;
-			program.statements = this.statements;
-			program.functions = this.functions;
-			program.variableDeclarations = this.variableDecls.clone();
-			program.variables = this.currentScope.finishLexicalEnvironment().clone();
+			if(this.statements)
+			{
+				endLocation.line = this.lexer.lineNumber;
+				endLocation.lineBegin = this.lexer.lineBegin;
+				endLocation.begin = this.lexer.position;
+				endColumn = endLocation.begin - endLocation.lineBegin;
+
+				program = new jsc.AST.ScriptNode(this.sourceCode, beginLocation, endLocation, beginColumn, endColumn, this.inStrictMode);
+				program.constantCount = this.state.constantCount;
+				program.features = this.features;
+				program.statements = this.statements;
+				program.functions = this.functions;
+				program.variableDeclarations = this.variableDecls.clone();
+				program.variables = this.currentScope.finishLexicalEnvironment().clone();
+
+				program.updatePosition(this.sourceCode.beginLine, this.lexer.lineNumber, this.lexer.position, this.lexer.lineBegin);
+				program.end = this.lexer.position;
+			}
+			else
+			{
+				// TODO: handle error tokens
+			}
 		}
 		catch(e)
 		{
@@ -228,7 +255,7 @@ jsc.Parser = Object.define({
 	},
 
 	parseImpl: function() {
-		var context = new jsc.AST.Context(this.sourceCode, this.lexer);
+		var context = new jsc.AST.Context(this.sourceCode);
 		var scope = this.currentScope;
 		var statements = null;
 		var isValidEnding = false;
@@ -244,7 +271,7 @@ jsc.Parser = Object.define({
 
 		if((!statements || !statements.length) || !isValidEnding)
 		{
-			if(!this.hasError);
+			if(!this.hasError)
 				this.setError("Parser Error", false);
 
 			this.throwOnError();
@@ -430,7 +457,7 @@ jsc.Parser = Object.define({
 			}
 
 			if(statement && !dontSetEndOffset)
-				statement.endOffset = this.lastTokenEnd;
+				statement.end = this.state.lastTokenEndPosition.begin;
 		}
 		finally
 		{
@@ -443,7 +470,7 @@ jsc.Parser = Object.define({
 	parseStatement: function(context) {
 		var nonTrivialExprCount = 0;
 		var directive = null;
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var lastStatementDepth = this.state.statementDepth;
 		var dontSetEndOffset = false;
 		var statement = null;
@@ -473,7 +500,7 @@ jsc.Parser = Object.define({
 				case jsc.Token.Kind.SEMICOLON:
 				{
 					this.next();
-					statement = context.createEmptyStatement(column);
+					statement = context.createEmptyStatement(location);
 					break;
 				}
 
@@ -553,7 +580,7 @@ jsc.Parser = Object.define({
 			}
 
 			if(statement && !dontSetEndOffset)
-				statement.endOffset = this.lastTokenEnd;
+				statement.end = this.state.lastTokenEndPosition.begin;
 		}
 		finally
 		{
@@ -590,8 +617,10 @@ jsc.Parser = Object.define({
 	},
 
 	parseBlock: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var begin = this.tok.valueInfo.begin;
+		var beginLine = this.tokenLine;
+		var end = 0;
 		var statements = null;
 		var lexicalScope = null;
 		var result = null;
@@ -610,9 +639,13 @@ jsc.Parser = Object.define({
 
 			if(this.match(jsc.Token.Kind.CLOSE_BRACE))
 			{
+				end = this.tok.valueInfo.begin;
+
 				this.next();
 
-				result = context.createBlockStatement(null, (lexicalScope ? lexicalScope.finishLexicalEnvironment() : jsc.VariableEnvironment.Empty), beginLine, this.state.lastLine, column);
+				result = context.createBlockStatement(location, beginLine, this.lastTokenEndPosition.line, null, (lexicalScope ? lexicalScope.finishLexicalEnvironment() : jsc.VariableEnvironment.Empty));
+				result.begin = begin;
+				result.end = end;
 			}
 			else
 			{
@@ -620,9 +653,13 @@ jsc.Parser = Object.define({
 				this.failWhenNull(statements, "Cannot parse the body of the block statement.");
 
 				this.matchOrFail(jsc.Token.Kind.CLOSE_BRACE);
+				end = this.tok.valueInfo.begin;
+
 				this.next();
 
-				result = context.createBlockStatement(statements, (lexicalScope ? lexicalScope.finishLexicalEnvironment() : jsc.VariableEnvironment.Empty), beginLine, this.state.lastLine, column);
+				result = context.createBlockStatement(location, beginLine, this.lastTokenEndPosition.line, statements, (lexicalScope ? lexicalScope.finishLexicalEnvironment() : jsc.VariableEnvironment.Empty));
+				result.begin = begin;
+				result.end = end;
 			}
 		}
 		finally
@@ -639,18 +676,18 @@ jsc.Parser = Object.define({
 		depth = jsc.Utils.valueOrDefault(depth, 0);
 		patternParseContext = jsc.Utils.valueOrDefault(patternParseContext, null);
 
+		var location = this.tokenLocation;
 		var nonLHSCount = this.state.nonLHSCount;
 		var innerPattern = null;
 		var pattern = null;
 		var defaultValue = null;
-		var column = this.tokenColumn;
 		var restElementWasFound = false;
 
 		switch(this.tok.kind)
 		{
 			case jsc.Token.Kind.OPEN_BRACKET:
 			{
-				var arrayPattern = context.createArrayPattern(column);
+				var arrayPattern = context.createArrayPattern(location);
 
 				if(patternParseContext)
 					patternParseContext.hasPattern = true;
@@ -663,7 +700,7 @@ jsc.Parser = Object.define({
 				{
 					while(this.match(jsc.Token.Kind.COMMA))
 					{
-						arrayPattern.append(jsc.AST.ArrayPatternBindingKind.ELISION);
+						arrayPattern.append(this.tokenLocation, jsc.AST.ArrayPatternBindingKind.ELISION);
 						this.next();
 					}
 
@@ -675,6 +712,7 @@ jsc.Parser = Object.define({
 
 					if(this.match(jsc.Token.Kind.DOTDOTDOT))
 					{
+						location = this.tokenLocation;
 						this.next();
 
 						innerPattern = this.parseDestructuringPattern(context, kind, isExported, bindingContextKind, depth + 1, patternParseContext);
@@ -685,11 +723,12 @@ jsc.Parser = Object.define({
 						this.failWhenNull(innerPattern, "Unable to parse destructuring pattern.");
 						this.failWhenTrue((kind !== jsc.Parser.DestructuringKind.EXPRESSIONS && !innerPattern.isBindingPattern), "Expected an identifier for a rest element destructuring pattern.");
 
-						arrayPattern.append(jsc.AST.ArrayPatternBindingKind.REST_ELEMENT, innerPattern);
+						arrayPattern.append(location, jsc.AST.ArrayPatternBindingKind.REST_ELEMENT, innerPattern);
 						restElementWasFound = true;
 						break;
 					}
 
+					location = this.tokenLocation;
 					innerPattern = this.parseDestructuringPattern(context, kind, isExported, bindingContextKind, depth + 1, patternParseContext);
 
 					if(kind === jsc.Parser.DestructuringKind.EXPRESSIONS && jsc.Utils.isNull(innerPattern))
@@ -698,7 +737,7 @@ jsc.Parser = Object.define({
 					this.failWhenNull(innerPattern, "Unable to parse destructuring pattern.");
 
 					defaultValue = this.parseDefaultValueForDestructuringPattern(context);
-					arrayPattern.append(jsc.AST.ArrayPatternBindingKind.ELEMENT, innerPattern, defaultValue);
+					arrayPattern.append(location, jsc.AST.ArrayPatternBindingKind.ELEMENT, innerPattern, defaultValue);
 
 				} while(this.consume(jsc.Token.Kind.COMMA));
 
@@ -711,7 +750,7 @@ jsc.Parser = Object.define({
 			}
 			case jsc.Token.Kind.OPEN_BRACE:
 			{
-				var objectPattern = context.createObjectPattern(column);
+				var objectPattern = context.createObjectPattern(location);
 
 				if(patternParseContext)
 					patternParseContext.hasPattern = true;
@@ -722,7 +761,8 @@ jsc.Parser = Object.define({
 				{
 					var wasString = false;
 					var propertyName = null;
-					var identifierColumn = this.tokenColumn;
+
+					location = this.tokenLocation;
 
 					if(this.match(jsc.Token.Kind.CLOSE_BRACE))
 						break;
@@ -738,7 +778,7 @@ jsc.Parser = Object.define({
 						if(this.consume(jsc.Token.Kind.COLON))
 							innerPattern = this.parseDestructuringPattern(context, kind, isExported, bindingContextKind, depth + 1, patternParseContext);
 						else
-							innerPattern = this.createBindingPattern(context, kind, isExported, bindingContextKind, propertyName, depth + 1, identifierColumn, patternParseContext);
+							innerPattern = this.createBindingPattern(context, kind, isExported, bindingContextKind, propertyName, depth + 1, location, patternParseContext);
 					}
 					else
 					{
@@ -796,7 +836,7 @@ jsc.Parser = Object.define({
 					if(jsc.Utils.isStringNullOrEmpty(propertyName))
 						this.fail("Expected a property name.");
 
-					objectPattern.append(propertyName, wasString, innerPattern, defaultValue);
+					objectPattern.append(location, propertyName, wasString, innerPattern, defaultValue);
 
 				} while(this.consume(jsc.Token.Kind.COMMA));
 
@@ -822,7 +862,7 @@ jsc.Parser = Object.define({
 
 				this.failWhenTrue(this.match(jsc.Token.Kind.LET) && (kind === jsc.Parser.DestructuringKind.LET || kind === jsc.Parser.DestructuringKind.CONST), "Cannot use 'let' as an identifier name.");
 
-				pattern = this.createBindingPattern(context, kind, isExported, bindingContextKind, this.tok.value, depth, this.tokenColumn, patternParseContext);
+				pattern = this.createBindingPattern(context, kind, isExported, bindingContextKind, this.tok.value, depth, this.tokenLocation, patternParseContext);
 				this.next();
 				break;
 			}
@@ -841,7 +881,7 @@ jsc.Parser = Object.define({
 		return this.parseAssignment(context);
 	},
 
-	createBindingPattern: function(context, kind, isExported, bindingContextKind, name, depth, tokenColumn, patternParseContext) {
+	createBindingPattern: function(context, kind, isExported, bindingContextKind, name, depth, location, patternParseContext) {
 		var result = null;
 
 		if(kind === jsc.Parser.DestructuringKind.VARIABLES)
@@ -917,14 +957,14 @@ jsc.Parser = Object.define({
 			this.exportBinding(name);
 		}
 
-		return context.createBindingPattern(name, bindingContextKind, tokenColumn);
+		return context.createBindingPattern(location, name, bindingContextKind);
 	},
 
 	parseVarDeclaration: function(context, declarationKind, isExported) {
 		isExported = jsc.Utils.valueOrDefault(isExported, false);
 
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
 		var result = null;
 
 		if(!this.match(jsc.Token.Kind.VAR) && !this.match(jsc.Token.Kind.LET) && !this.match(jsc.Token.Kind.CONST))
@@ -935,33 +975,30 @@ jsc.Parser = Object.define({
 		this.failWhenError();
 		this.failWhenFalse(this.insertSemicolon(), "Expected ';' after variable declaration.");
 
-		return context.createDeclarationStatement(result.expr, beginLine, this.state.lastLine, column);
+		return context.createDeclarationStatement(location, beginLine, 0, result.expr);
 	},
 	
 	parseVarDeclarationList: function(context, declarationListKind, declarationKind, isExported) {
 		var declExpr = null;
 		var assignmentContextKind = this.getAssignmentContextKindFromDeclarationKind(declarationKind);
+		var lastNameLocation = null;
 		var result = {
 			expr: null,
 			count: 0,
 			lastName: null,
 			lastInitializer: null,
 			lastPattern: null,
-			nameBegin: 0,
-			initBegin: 0,
-			initEnd: 0,
-			initColumn: 0,
 			forLoopConstHasInitializer: true
 		};
 
 		do
 		{
-			var varBegin = 0;
-			var varDivot = 0;
+			var location = this.tokenLocation;
+			var varLocation = 0;
 			var initialAssignmentCount = 0;
 			var hasInitializer = false;
-			var name = null;
 			var initializer = null;
+			var name = null;
 			var node = null;
 			var declarationResult = 0;
 
@@ -975,11 +1012,9 @@ jsc.Parser = Object.define({
 			{
 				this.failWhenTrue(this.match(jsc.Token.Kind.LET) && (declarationKind === jsc.Parser.DeclarationKind.LET || declarationKind === jsc.Parser.DeclarationKind.CONST), "Cannot use 'let' as an identifier name for a Lxical Declaration.");
 
-				varBegin = this.tokenBegin;
+				varLocation = this.tokenLocation;
+				lastNameLocation = this.tokenLocation;
 				name = this.tok.value;
-
-				result.initColumn = this.tokenColumn;
-				result.nameBegin = varBegin;
 				result.lastName = name;
 
 				this.next();
@@ -1012,21 +1047,15 @@ jsc.Parser = Object.define({
 
 				if(hasInitializer)
 				{
-					varDivot = this.tokenBegin + 1;
-					result.initColumn = this.tokenColumn;
-					result.initBegin = this.tokenBegin;
-
 					this.next();
 
 					initialAssignmentCount = this.state.assignmentCount;
 					initializer = this.parseAssignment(context);
-					result.initEnd = this.lastTokenEnd;
-
 					result.lastInitializer = initializer;
 
 					this.failWhenNull(initializer, "Expected expression as the initializer for the variable '" + name + "'");
 
-					node = context.createAssignResolveExpression(name, initializer, initialAssignmentCount !== this.state.assignmentCount, assignmentContextKind, varBegin, varDivot, this.lastTokenEnd, result.initColumn);
+					node = context.createAssignResolveExpression(location, name, initializer, initialAssignmentCount !== this.state.assignmentCount);
 				}
 				else
 				{
@@ -1038,13 +1067,13 @@ jsc.Parser = Object.define({
 					switch(declarationKind)
 					{
 						case jsc.Parser.DeclarationKind.VAR:
-							node = context.createEmptyDeclarationExpression(name, jsc.AST.DeclarationKind.VAR, varBegin, result.initColumn);
+							node = context.createEmptyDeclarationExpression(varLocation, name, jsc.AST.DeclarationKind.VAR);
 							break;
 						case jsc.Parser.DeclarationKind.LET:
-							node = context.createEmptyDeclarationExpression(name, jsc.AST.DeclarationKind.LET, varBegin, result.initColumn);
+							node = context.createEmptyDeclarationExpression(varLocation, name, jsc.AST.DeclarationKind.LET);
 							break;
 						case jsc.Parser.DeclarationKind.CONST:
-							node = context.createEmptyDeclarationExpression(name, jsc.AST.DeclarationKind.CONST, varBegin, result.initColumn);
+							node = context.createEmptyDeclarationExpression(varLocation, name, jsc.AST.DeclarationKind.CONST);
 							break;
 					}
 				}
@@ -1054,7 +1083,6 @@ jsc.Parser = Object.define({
 				result.lastName = null;
 
 				var pattern = this.parseDestructuringPattern(context, this.getDestructuringKindFromDeclarationKind(declarationKind), isExported, assignmentContextKind);
-
 				this.failWhenNull(pattern, "Cannot parse this destructuring pattern.");
 
 				hasInitializer = this.match(jsc.Token.Kind.EQUAL);
@@ -1068,18 +1096,18 @@ jsc.Parser = Object.define({
 					this.next();
 
 					initializer = this.parseAssignment(context);
-					node = context.createDestructuringAssignmentExpression(pattern, initializer, result.initColumn);
+					node = context.createDestructuringAssignmentExpression(location, pattern, initializer);
 
 					result.lastInitializer = initializer;
 				}
 			}
 
-			declExpr = context.combineCommaExpressions(declExpr, node, result.initColumn);
+			declExpr = context.combineCommaExpressions(location, declExpr, node);
 		}
 		while(this.match(jsc.Token.Kind.COMMA));
 
 		if(!jsc.Utils.isStringNullOrEmpty(result.lastName))
-			result.lastPattern = context.createBindingPattern(result.lastName, assignmentContextKind, result.initColumn);
+			result.lastPattern = context.createBindingPattern(lastNameLocation, result.lastName, assignmentContextKind);
 
 		result.expr = declExpr;
 
@@ -1087,13 +1115,12 @@ jsc.Parser = Object.define({
 	},
 
 	parseIf: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
-		var hasTrailingElse = false;
 		var condition = null;
 		var trueBlock = null;
-		
+		var ifLocation = this.tokenLocation;
+
 		this.matchOrFail(jsc.Token.Kind.IF);
 		this.next();
 		this.consumeOrFail(jsc.Token.Kind.OPEN_PAREN);
@@ -1101,26 +1128,32 @@ jsc.Parser = Object.define({
 		condition = this.parseExpression(context);
 		this.failWhenNull(condition);
 		
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
-		
+
 		trueBlock = this.parseStatement(context);
 		this.failWhenNull(trueBlock);
 		
 		if(!this.match(jsc.Token.Kind.ELSE))
-			return context.createIfStatement(condition, trueBlock, null, beginLine, endLine, column);
-			
+			return context.createIfStatement(ifLocation, beginLine, endLine, condition, trueBlock, null);
+
 		var expressions = [];
 		var statements = [];
 		var positions = [];
+		var locations = [];
+		var location = null;
+		var statement = null;
+		var hasTrailingElse = false;
 		
 		do
 		{
+			location = this.tokenLocation;
+
 			this.next();
 			
 			if(!this.match(jsc.Token.Kind.IF))
 			{
-				var statement = this.parseStatement(context);
+				statement = this.parseStatement(context);
 				this.failWhenNull(statement);
 				
 				statements.push(statement);
@@ -1128,8 +1161,7 @@ jsc.Parser = Object.define({
 				break;
 			}
 
-			var innerColumn = this.tokenColumn;
-			var innerBeginLine = this.tokenEndLine;
+			var innerBeginLine = this.tokenLine;
 			var innerEndLine = 0;
 			var innerCondition = null;
 			var innerTrueBlock = null;
@@ -1140,14 +1172,15 @@ jsc.Parser = Object.define({
 			innerCondition = this.parseExpression(context);
 			this.failWhenNull(innerCondition);
 			
-			innerEndLine = this.tokenEndLine;
+			innerEndLine = this.tokenLine;
 			this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 			
 			innerTrueBlock = this.parseStatement(context);
 			this.failWhenNull(innerTrueBlock);
-			
+
+			locations.push(location);
 			expressions.push(innerCondition);
-			positions.push([innerBeginLine, innerEndLine, innerColumn]);
+			positions.push([innerBeginLine, innerEndLine]);
 			statements.push(innerTrueBlock);
 		}
 		while(this.match(jsc.Token.Kind.ELSE));
@@ -1155,14 +1188,18 @@ jsc.Parser = Object.define({
 		var expr = null;
 		var block = null;
 		var pos = null;
-		
+
 		if(!hasTrailingElse)
 		{
 			expr = expressions.pop();
 			block = statements.pop();
 			pos = positions.pop();
-			
-			statements.push(context.createIfStatement(expr, block, null, pos[0], pos[1], pos[2]));
+			location = locations.pop();
+
+			statement = context.createIfStatement(location, pos[0], pos[1], expr, block, null);
+			statement.end = block.end;
+
+			statements.push(statement);
 		}
 		
 		while(expressions.length)
@@ -1170,16 +1207,20 @@ jsc.Parser = Object.define({
 			expr = expressions.pop();
 			block = statements.pop();
 			pos = positions.pop();
-			
-			statements.push(context.createIfStatement(expr, statements.pop(), block, pos[0], pos[1], pos[2]));
+			location = locations.pop();
+
+			statement = context.createIfStatement(location, pos[0], pos[1], expr, statements.pop(), block);
+			statement.end = block.end;
+
+			statements.push(statement);
 		}
 		
-		return context.createIfStatement(condition, trueBlock, statements[statements.length-1], beginLine, endLine, column);
+		return context.createIfStatement(ifLocation, beginLine, endLine, condition, trueBlock, statements[statements.length-1]);
 	},
 	
 	parseDoWhile: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = null;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
 		var statement = null;
 		var expr = null;
@@ -1194,7 +1235,8 @@ jsc.Parser = Object.define({
 		
 		this.failWhenNull(statement);
 		
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
+		location = this.tokenLocation;
 		
 		this.consumeOrFail(jsc.Token.Kind.WHILE);
 		this.consumeOrFail(jsc.Token.Kind.OPEN_PAREN);
@@ -1208,12 +1250,12 @@ jsc.Parser = Object.define({
 		if(this.match(jsc.Token.Kind.SEMICOLON))
 			this.next();
 			
-		return context.createDoWhileStatement(expr, statement, beginLine, endLine, column);
+		return context.createDoWhileStatement(location, beginLine, endLine, expr, statement);
 	},
 	
 	parseWhile: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
 		var statement = null;
 		var expr = null;
@@ -1225,7 +1267,7 @@ jsc.Parser = Object.define({
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr);
 		
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
 		
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 		
@@ -1235,15 +1277,14 @@ jsc.Parser = Object.define({
 
 		this.failWhenNull(statement);
 			
-		return context.createWhileStatement(expr, statement, beginLine, endLine, column);
+		return context.createWhileStatement(location, beginLine, endLine, expr, statement);
 	},
 	
 	parseFor: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
 		var expr = null;
-		var exprEnd = 0;
 		var statement = null;
 		var isOfEnumeration = false;
 		var loopContext = new jsc.ParserForLoopContext(this);
@@ -1294,14 +1335,13 @@ jsc.Parser = Object.define({
 
 				declListResult = this.parseVarDeclarationList(context, jsc.Parser.DeclarationListKind.FORLOOP, declKind, false);
 				loopContext.decls = declListResult.expr;
-				loopContext.declsBegin = declListResult.nameBegin;
 				loopContext.forLoopConstHasInitializer = declListResult.forLoopConstHasInitializer;
 
 				this.state.allowsIn = true;
 				this.failWhenError();
 
 				if(this.match(jsc.Token.Kind.SEMICOLON))
-					return this.parseForLoop(context, loopContext, beginLine, column);
+					return this.parseForLoop(context, loopContext, location, beginLine);
 
 				this.failWhenFalse(declListResult.count === 1, "Can only declare a single variable in an enumeration.");
 				this.failWhenTrueInStrictMode(declListResult.lastInitializer !== null, "Cannot use initializer syntax in strict mode enumeration.");
@@ -1323,8 +1363,7 @@ jsc.Parser = Object.define({
 				expr = this.parseExpression(context);
 				this.failWhenNull(expr);
 
-				exprEnd = this.lastTokenEnd;
-				endLine = this.tokenEndLine;
+				endLine = this.tokenLine;
 
 				this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 
@@ -1337,9 +1376,9 @@ jsc.Parser = Object.define({
 				loopContext.gatherLexicalVariablesIfNeeded();
 
 				if(isOfEnumeration)
-					result = context.createForOfStatement(declListResult.lastInitializer, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+					result = context.createForOfStatement(location, beginLine, endLine, declListResult.lastInitializer, expr, statement, loopContext.lexicalVariables);
 				else
-					result = context.createForInStatement(declListResult.lastInitializer, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+					result = context.createForInStatement(location, beginLine, endLine, declListResult.lastInitializer, expr, statement, loopContext.lexicalVariables);
 
 				loopContext.popLexicalScopeIfNeeded();
 
@@ -1352,12 +1391,10 @@ jsc.Parser = Object.define({
 				{
 					var lastState = this.createRestorePoint();
 
-					loopContext.declsBegin = this.tokenBegin;
 					loopContext.pattern = this.parseDestructuringPattern(context, jsc.Parser.DestructuringKind.EXPRESSIONS, false, jsc.AST.AssignmentContextKind.DECLARATION);
-					loopContext.declsEnd = this.lastTokenEnd;
 
 					if(loopContext.pattern && (this.match(jsc.Token.Kind.IN) || (this.match(jsc.Token.Kind.IDENTIFIER) && this.tok.value === "of")))
-						return this.parseEnumerationForLoop(context, loopContext, beginLine, column);
+						return this.parseEnumerationForLoop(context, loopContext, location, beginLine);
 
 					loopContext.pattern = null;
 					lastState.restore(this);
@@ -1365,9 +1402,7 @@ jsc.Parser = Object.define({
 
 				this.state.allowsIn = false;
 
-				loopContext.declsBegin = this.tokenBegin;
 				loopContext.decls = this.parseExpression(context);
-				loopContext.declsEnd = this.lastTokenEnd;
 
 				this.state.allowsIn = true;
 
@@ -1376,9 +1411,9 @@ jsc.Parser = Object.define({
 
 			// parse standard for loop
 			if(this.match(jsc.Token.Kind.SEMICOLON))
-				return this.parseForLoop(context, loopContext, beginLine, column);
+				return this.parseForLoop(context, loopContext, location, beginLine);
 
-			return this.parseEnumerationForLoop(context, loopContext, beginLine, column);
+			return this.parseEnumerationForLoop(context, loopContext, location, beginLine);
 		}
 		finally
 		{
@@ -1387,7 +1422,7 @@ jsc.Parser = Object.define({
 		}
 	},
 
-	parseForLoop: function(context, loopContext, beginLine, column) {
+	parseForLoop: function(context, loopContext, location, beginLine) {
 		var statement = null;
 		var condition = null;
 		var increment = null;
@@ -1411,7 +1446,7 @@ jsc.Parser = Object.define({
 			this.failWhenNull(increment, "Cannot parse for loop iteration expression.");
 		}
 
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 
 		this.currentScope.beginLoop();
@@ -1421,17 +1456,16 @@ jsc.Parser = Object.define({
 		this.failWhenNull(statement);
 
 		loopContext.gatherLexicalVariablesIfNeeded();
-		result = context.createForStatement(loopContext.decls, condition, increment, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+		result = context.createForStatement(location, beginLine, endLine, loopContext.decls, condition, increment, statement, loopContext.lexicalVariables);
 		loopContext.popLexicalScopeIfNeeded();
 
 		return result;
 	},
 
-	parseEnumerationForLoop: function(context, loopContext, beginLine, column) {
+	parseEnumerationForLoop: function(context, loopContext, location, beginLine) {
 		var isOfEnumeration = false;
 		var statement = null;
 		var expr = null;
-		var exprEnd = 0;
 		var endLine = 0;
 		var result = null;
 
@@ -1447,8 +1481,7 @@ jsc.Parser = Object.define({
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr);
 
-		exprEnd = this.lastTokenEnd;
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
 
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 
@@ -1462,32 +1495,30 @@ jsc.Parser = Object.define({
 
 		if(loopContext.pattern)
 		{
-			var patternExpr = context.createDestructuringAssignmentExpression(loopContext.pattern, null, column);
+			var patternExpr = context.createDestructuringAssignmentExpression(location, loopContext.pattern, null);
 
 			if(isOfEnumeration)
-				result = context.createForOfStatement(patternExpr, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+				result = context.createForOfStatement(location, beginLine, endLine, patternExpr, expr, statement, loopContext.lexicalVariables);
 			else
-				result = context.createForInStatement(patternExpr, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+				result = context.createForInStatement(location, beginLine, endLine, patternExpr, expr, statement, loopContext.lexicalVariables);
 
 			loopContext.popLexicalScopeIfNeeded();
 			return result;
 		}
 
 		if(isOfEnumeration)
-			result = context.createForOfStatement(loopContext.decls, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+			result = context.createForOfStatement(location, beginLine, endLine, loopContext.decls, expr, statement, loopContext.lexicalVariables);
 		else
-			result = context.createForInStatement(loopContext.decls, expr, statement, loopContext.lexicalVariables, beginLine, endLine, column);
+			result = context.createForInStatement(location, beginLine, endLine, loopContext.decls, expr, statement, loopContext.lexicalVariables);
 
 		loopContext.popLexicalScopeIfNeeded();
 		return result;
 	},
 
 	parseContinue: function(context) {
-		var column = this.tokenColumn;
-		var beginColumn = this.tokenBegin;
-		var endColumn = this.tokenEnd;
-		var beginLine = this.tokenEndLine;
-		var endLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var begin = this.tokenBeginPosition;
+		var end = this.tokenEndPosition;
 		var name = null;
 		var label = null;
 		
@@ -1497,7 +1528,7 @@ jsc.Parser = Object.define({
 		if(this.insertSemicolon())
 		{
 			this.failWhenFalse(this.canContinue, "The 'continue' keyword can only be used inside a loop statement.");
-			return context.createContinueStatement(null, beginColumn, endColumn, beginLine, endLine, column);
+			return context.createContinueStatement(location, begin, end, null);
 		}
 		
 		this.matchOrFail(jsc.Token.Kind.IDENTIFIER);
@@ -1508,21 +1539,18 @@ jsc.Parser = Object.define({
 		this.failWhenNull(label, "The label '" + name + "' is not defined");
 		this.failWhenFalse(label.isLoop, "The 'continue' keyword can only be used inside a loop statement.");
 		
-		endColumn = this.tokenEnd;
-		endLine = this.tokenEndLine;
+		end = this.tokenEndPosition;
 		
 		this.next();
 		this.failWhenFalse(this.insertSemicolon());
 		
-		return context.createContinueStatement(name, beginColumn, endColumn, beginLine, endLine, column);
+		return context.createContinueStatement(location, begin, end, name);
 	},
 	
 	parseBreak: function(context) {
-		var column = this.tokenColumn;
-		var beginColumn = this.tokenBegin;
-		var endColumn = this.tokenEnd;
-		var beginLine = this.tokenEndLine;
-		var endLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var begin = this.tokenBeginPosition;
+		var end = this.tokenEndPosition;
 		var name = null;
 		
 		this.matchOrFail(jsc.Token.Kind.BREAK);
@@ -1531,93 +1559,86 @@ jsc.Parser = Object.define({
 		if(this.insertSemicolon())
 		{
 			this.failWhenFalse(this.canBreak, "The 'break' keyword can only be used inside a switch or loop statement.");
-			return context.createBreakStatement(null, beginColumn, endColumn, beginLine, endLine, column);
+			return context.createBreakStatement(location, begin, end, null);
 		}
 		
 		this.matchOrFail(jsc.Token.Kind.IDENTIFIER);
 		name = this.tok.value;
 		this.failWhenNull(this.findLabel(name), "The label '" + name + "' is not defined.");
 		
-		endColumn = this.tokenEnd;
-		endLine = this.tokenEndLine;
+		end = this.tokenEndPosition;
 		
 		this.next();
 		this.failWhenFalse(this.insertSemicolon());
 		
-		return context.createBreakStatement(name, beginColumn, endColumn, beginLine, endLine, column);
+		return context.createBreakStatement(location, begin, end, name);
 	},
 	
 	parseReturn: function(context) {
+		var location = this.tokenLocation;
+		var begin = this.tokenBeginPosition;
+		var end = this.tokenEndPosition;
 		var scope = this.currentScope;
 		var expr = null;
-		var column = this.tokenColumn;
-		var beginColumn = this.tokenBegin;
-		var endColumn = this.tokenEnd;
-		var beginLine = this.tokenEndLine;
-		var endLine = this.tokenEndLine;
-		
+
 		this.matchOrFail(jsc.Token.Kind.RETURN);
 		this.failWhenFalse(scope.isFunction);
 		this.next();
 		
 		if(this.match(jsc.Token.Kind.SEMICOLON))
-			endLine = this.tokenEndLine;
+			end = this.tokenEndPosition;
 			
 		if(this.insertSemicolon())
-			return context.createReturnStatement(null, beginColumn, endColumn, beginLine, endLine, column);
-			
+			return context.createReturnStatement(location, begin, end, null);
+
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr);
 		
-		endColumn = this.lastTokenEnd;
+		end = this.lastTokenEndPosition;
 		
 		if(this.match(jsc.Token.Kind.SEMICOLON))
-			endLine = this.tokenEndLine;
+			end = this.tokenEndPosition;
 			
 		this.failWhenFalse(this.insertSemicolon());
 		
 		scope.doesFunctionReturn = true;
-		return context.createReturnStatement(expr, beginColumn, endColumn, beginLine, endLine, column);
+		return context.createReturnStatement(location, begin, end, expr);
 	},
 	
 	parseWith: function(context) {
-		var column = this.tokenColumn;
-		var beginColumn = 0;
-		var endColumn = 0;
-		var beginLine = 0;
+		var location = this.tokenLocation;
+		var begin = 0;
+		var beginLine = this.tokenLine;
+		var end = null;
 		var endLine = 0;
 		var expr = null;
 		var statement = null;
 		
 		this.matchOrFail(jsc.Token.Kind.WITH);
-		
 		this.failWhenTrue(this.inStrictMode, "The 'with' keyword is not allowed while in strict mode.");
 
 		this.currentScope.needsFullActivation = true;
-		
-		beginLine = this.tokenEndLine;
-		
 		this.next();
 		this.consumeOrFail(jsc.Token.Kind.OPEN_PAREN);
 
-		beginColumn = this.tokenBegin;
+		begin = this.tokenBegin;
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr);
 
-		endColumn = this.lastTokenEnd;
-		endLine = this.tokenEndLine;
+		end = this.lastTokenEndPosition;
+		endLine = this.tokenLine;
 		
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 
 		statement = this.parseStatement(context);
 		this.failWhenNull(statement);
 
-		return context.createWithStatement(expr, statement, beginColumn, endColumn, beginLine, endLine, column);
+		return context.createWithStatement(location, beginLine, endLine, expr, end.begin - begin, statement);
 	},
 	
 	parseSwitch: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
 		var expr = null;
 		var scope = null;
@@ -1633,7 +1654,7 @@ jsc.Parser = Object.define({
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr, "Cannot parse switch condition expression.");
 
-		endLine = this.tokenEndLine;
+		endLine = this.tokenLine;
 
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_PAREN);
 		this.consumeOrFail(jsc.Token.Kind.OPEN_BRACE);
@@ -1658,7 +1679,7 @@ jsc.Parser = Object.define({
 
 			this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
 
-			result = context.createSwitchStatement(expr, defaultClause, firstClauses, secondClauses, scope.finishLexicalEnvironment(), beginLine, endLine, column);
+			result = context.createSwitchStatement(location, beginLine, endLine, expr, defaultClause, firstClauses, secondClauses, scope.finishLexicalEnvironment());
 		}
 		finally
 		{
@@ -1724,11 +1745,9 @@ jsc.Parser = Object.define({
 	},
 	
 	parseThrow: function(context) {
-		var column = this.tokenColumn;
-		var beginColumn = this.tokenBegin;
-		var endColumn = 0;
-		var beginLine = this.tokenEndLine;
-		var endLine = 0;
+		var location = this.tokenLocation;
+		var begin = this.tokenBeginPosition;
+		var end = null;
 		var expr = null;
 		
 		this.matchOrFail(jsc.Token.Kind.THROW);
@@ -1738,17 +1757,16 @@ jsc.Parser = Object.define({
 		expr = this.parseExpression(context);
 		this.failWhenNull(expr);
 		
-		endColumn = this.lastTokenEnd;
-		endLine = this.tokenEndLine;
+		end = this.lastTokenEndPosition;
 		
 		this.failWhenFalse(this.insertSemicolon());
 		
-		return context.createThrowStatement(expr, beginColumn, endColumn, beginLine, endLine, column);
+		return context.createThrowStatement(location, begin, end, expr);
 	},
 	
 	parseTry: function(context) {
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
 		var endLine = 0;
 		var tryBlock = null;
 		var finallyBlock = null;
@@ -1764,7 +1782,7 @@ jsc.Parser = Object.define({
 		tryBlock = this.parseBlock(context);
 		this.failWhenNull(tryBlock, "Cannot parse the body of the try block.");
 
-		endLine = this.state.lastLine;
+		endLine = this.state.lastTokenEndPosition.line;
 
 		if(this.match(jsc.Token.Kind.CATCH))
 		{
@@ -1812,23 +1830,23 @@ jsc.Parser = Object.define({
 
 		this.failWhenFalse(catchBlock || finallyBlock, "A try statement must have at least a catch or a finally block.");
 
-		return context.createTryStatement(name, tryBlock, catchBlock, finallyBlock, catchVariables, beginLine, endLine, column);
+		return context.createTryStatement(location, beginLine, endLine, name, tryBlock, catchBlock, finallyBlock, catchVariables);
 	},
 	
 	parseDebugger: function(context) {
-		var column = this.tokenColumn;
-		var begin = this.tokenEndLine;
-		var end = begin;
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
+		var endLine = beginLine;
 		
 		this.matchOrFail(jsc.Token.Kind.DEBUGGER);
 		this.next();
 		
 		if(this.match(jsc.Token.Kind.SEMICOLON))
-			begin = this.tokenEndLine;
+			beginLine = this.tokenLine;
 			
 		this.failWhenFalse(this.insertSemicolon());
 		
-		return context.createDebuggerStatement(begin, end, column);
+		return context.createDebuggerStatement(location, beginLine, endLine);
 	},
 	
 	parseExpressionStatement: function(context) {
@@ -1839,25 +1857,25 @@ jsc.Parser = Object.define({
 				break;
 		}
 
-		var column = this.tokenColumn;
-		var beginLine = this.tokenEndLine;
+		var begin = this.tokenBeginPosition;
+		var location = this.tokenLocation;
 		var expr = this.parseExpression(context);
 		
 		this.failWhenNull(expr);
 		this.failWhenFalse(this.insertSemicolon());
 		
-		return context.createExpressionStatement(expr, beginLine, this.state.lastLine, column);
+		return context.createExpressionStatement(location, begin, this.state.lastTokenEndPosition.line, expr);
 	},
 	
 	parseExpression: function(context) {
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var lhs = null;
 		var rhs = null;
 		var commaExpr = null;
 
 		lhs = this.parseAssignment(context);
-		this.failWhenNull(lhs);
-		lhs.endOffset = this.lastTokenEnd;
+		this.failWhenNull(lhs, "Cannot parse expression.");
+		lhs.end = this.state.lastTokenEndPosition.begin;
 
 		if(!this.match(jsc.Token.Kind.COMMA))
 			return lhs;
@@ -1868,10 +1886,10 @@ jsc.Parser = Object.define({
 		this.state.nonLHSCount++;
 		
 		rhs = this.parseAssignment(context);
-		this.failWhenNull(rhs);
-		rhs.endOffset = this.lastTokenEnd;
+		this.failWhenNull(rhs, "Cannot parse expression in a comma expression.");
+		rhs.end = this.state.lastTokenEndPosition.begin;
 		
-		commaExpr = context.createCommaExpression(lhs, column);
+		commaExpr = context.createCommaExpression(location, lhs);
 		commaExpr.append(rhs);
 
 		while(this.match(jsc.Token.Kind.COMMA))
@@ -1880,25 +1898,26 @@ jsc.Parser = Object.define({
 			
 			rhs = this.parseAssignment(context);
 			this.failWhenNull(rhs);
-			rhs.endOffset = this.lastTokenEnd;
+			rhs.end = this.state.lastTokenEndPosition.begin;
 			
 			commaExpr.append(rhs);
 		}
 
-		commaExpr.endOffset = this.lastTokenEnd;
+		commaExpr.end = this.state.lastTokenEndPosition.begin;
 		return commaExpr;
 	},
 	
 	parseExpressionOrLabel: function(context) {
 		var labels = [];
 		var i = 0;
+		var location = null;
 
 		do {
-			var column = this.tokenColumn;
-			var beginLine = this.tokenEndLine;
-			var beginColumn = this.tokenBegin;
-			var endColumn = 0;
+			var begin = this.tokenBeginPosition;
+			var end = null;
 			var name = null;
+
+			location = this.tokenLocation;
 			
 			if(!this.lexer.isNextTokenColon)
 			{
@@ -1907,11 +1926,11 @@ jsc.Parser = Object.define({
 				this.failWhenNull(expr);
 				this.failWhenFalse(this.insertSemicolon());
 				
-				return context.createExpressionStatement(expr, beginLine, this.state.lastLine, column);
+				return context.createExpressionStatement(location, begin, this.lastTokenEndPosition.line, expr);
 			}
 			
 			name = this.tok.value;
-			endColumn = this.tokenEnd;
+			end = this.tokenEndPosition;
 			
 			this.next();
 			this.consumeOrFail(jsc.Token.Kind.COLON);
@@ -1920,7 +1939,7 @@ jsc.Parser = Object.define({
 				this.failWhenTrue(name === labels[i].name);
 					
 			this.failWhenTrue(this.findLabel(name) !== null);
-			labels.push(new jsc.AST.LabelInfo(name, beginColumn, endColumn, column));
+			labels.push(new jsc.AST.LabelInfo(name, begin, end));
 
 		} while(this.match(jsc.Token.Kind.IDENTIFIER) || this.isLetMaskedAsIdentifier());
 		
@@ -1955,15 +1974,14 @@ jsc.Parser = Object.define({
 		for(i = 0; i < labels.length; i++)
 		{
 			var info = labels[labels.length - i - 1];
-			statement = context.createLabelStatement(info, statement);
+			statement = context.createLabelStatement(location, info.begin, info.end, info.name, statement);
 		}
 		
 		return statement;
 	},
 	
 	parseAssignment: function(context) {
-		var column = this.tokenColumn;
-		var beginColumn = this.tokenBegin;
+		var location = this.tokenLocation;
 		var initialAssignmentCount = this.state.assignmentCount;
 		var initialNonLHSCount = this.state.nonLHSCount;
 		var assignmentDepth = 0;
@@ -1983,7 +2001,7 @@ jsc.Parser = Object.define({
 				rhs = this.parseAssignment(context);
 
 				if(jsc.Utils.isNotNull(rhs))
-					return context.createDestructuringAssignmentExpression(pattern, rhs, column);
+					return context.createDestructuringAssignmentExpression(location, pattern, rhs);
 			}
 
 			lastState.restore(this);
@@ -2052,12 +2070,10 @@ jsc.Parser = Object.define({
 
 			this.state.nonTrivialExprCount++;
 			hadAssignment = true;
-			
 			assignmentDepth++;
-			context.appendAssignment(lhs, beginColumn, this.tokenBegin, column, this.state.assignmentCount, op);
-			
-			beginColumn = this.tokenBegin;
-			
+
+			context.appendAssignment(lhs, this.state.assignmentCount, op);
+
 			this.state.assignmentCount++;
 			this.next();
 			
@@ -2087,7 +2103,7 @@ jsc.Parser = Object.define({
 
 		while(assignmentDepth > 0)
 		{
-			lhs = context.createAssignmentExpression(lhs, initialAssignmentCount, this.state.assignmentCount);
+			lhs = context.createAssignmentExpression(location, lhs, initialAssignmentCount, this.state.assignmentCount);
 			assignmentDepth--;
 		}
 
@@ -2095,12 +2111,12 @@ jsc.Parser = Object.define({
 	},
 	
 	parseConditional: function(context) {
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var lhs = null;
 		var rhs = null;
 		var cond = this.parseBinary(context);
 		
-		this.failWhenNull(cond);
+		this.failWhenNull(cond, "Cannot parse expression.");
 		
 		if(!this.match(jsc.Token.Kind.QUESTION))
 			return cond;
@@ -2111,15 +2127,20 @@ jsc.Parser = Object.define({
 		this.next();
 		
 		lhs = this.parseAssignment(context);
+		this.failWhenNull(lhs, "Cannot parse left hand side of ternary operator.");
+		lhs.end = this.lastTokenEndPosition.begin;
+
 		this.consumeOrFail(jsc.Token.Kind.COLON);
 		
 		rhs = this.parseAssignment(context);
-		this.failWhenNull(rhs);
+		this.failWhenNull(rhs, "Cannot parse right hand side of ternary operator.");
+		rhs.end = this.lastTokenEndPosition.begin;
 		
-		return context.createConditionalExpression(cond, lhs, rhs, column);
+		return context.createConditionalExpression(location, cond, lhs, rhs);
 	},
 	
 	parseBinary: function(context) {
+		var location = this.tokenLocation;
 		var operationState = {
 			operandDepth: 0,
 			operatorDepth: 0
@@ -2136,7 +2157,7 @@ jsc.Parser = Object.define({
 
 			this.failWhenNull(currentExpr);
 			
-			context.pushBinaryOperand(operationState, currentExpr, beginColumn, this.lastTokenEnd, this.lastTokenEnd, column, initialAssignmentCount !== this.state.assignmentCount);
+			context.pushBinaryOperand(operationState, currentExpr, initialAssignmentCount !== this.state.assignmentCount);
 			
 			precedence = this.getBinaryOperatorPrecedence(this.tok.kind);
 
@@ -2152,7 +2173,7 @@ jsc.Parser = Object.define({
 
 			while(operationState.operatorDepth > 0 && context.precedenceIsLowerThanOperatorStack(precedence))
 			{
-				context.popBinaryOperation(operationState);
+				context.popBinaryOperation(location, operationState);
 			}
 
 			context.pushBinaryOperation(operationState, operatorToken, precedence);
@@ -2160,7 +2181,7 @@ jsc.Parser = Object.define({
 
 		while(operationState.operatorDepth > 0)
 		{
-			context.popBinaryOperation(operationState);
+			context.popBinaryOperation(location, operationState);
 		}
 		
 		return context.popBinaryOperand();
@@ -2170,13 +2191,11 @@ jsc.Parser = Object.define({
 		var lastAllowsIn = this.state.allowsIn;
 		var lastTokenKind = jsc.Token.Kind.UNKNOWN;
 		var tokenStackDepth = 0;
-		var column = this.tokenColumn;
-		var beginColumn = 0;
-		var endColumn = 0;
 		var modifiesExpression = false;
 		var requiresLExpression = false;
 		var isEvalOrArguments = false;
 		var expr = null;
+		var location = null;
 		
 		this.state.allowsIn = true;
 		
@@ -2204,7 +2223,7 @@ jsc.Parser = Object.define({
 				}
 			}
 
-			context.pushUnaryToken(this.tok.kind, this.tokenBegin, this.tokenColumn);
+			context.pushUnaryToken(this.tok.kind, this.tokenBeginPosition);
 			tokenStackDepth++;
 
 			lastTokenKind = this.tok.kind;
@@ -2215,7 +2234,7 @@ jsc.Parser = Object.define({
 			this.next();
 		}
 		
-		beginColumn = this.tokenBegin;
+		location = this.tokenLocation;
 		expr = this.parseMember(context);
 
 		if(jsc.Utils.isNull(expr))
@@ -2238,7 +2257,7 @@ jsc.Parser = Object.define({
 				this.state.nonLHSCount++;
 				this.state.nonTrivialExprCount++;
 				
-				expr = context.createPostfixExpression(expr, (this.tok.kind === jsc.Token.Kind.PLUSPLUS ? jsc.AST.AssignmentOperatorKind.PLUS_PLUS : jsc.AST.AssignmentOperatorKind.MINUS_MINUS), column);
+				expr = context.createPostfixExpression(location, expr, (this.tok.kind === jsc.Token.Kind.PLUSPLUS ? jsc.AST.AssignmentOperatorKind.PLUS_PLUS : jsc.AST.AssignmentOperatorKind.MINUS_MINUS));
 				
 				this.state.assignmentCount++;
 				
@@ -2251,53 +2270,50 @@ jsc.Parser = Object.define({
 				break;
 		}
 		
-		endColumn = this.lastTokenEnd;
+		location = this.tokenLocation;
+		location.line = this.lexer.lastLineNumber;
 
 		while(tokenStackDepth > 0)
 		{
-			var unaryTokenColumn = context.lastUnaryTokenColumn;
-
 			switch(context.lastUnaryTokenKind)
 			{
 				case jsc.Token.Kind.EXCLAMATION:
-					expr = context.createLogicalNotExpression(expr, unaryTokenColumn);
+					expr = context.createLogicalNotExpression(location, expr);
 					break;
 				case jsc.Token.Kind.TILDE:
-					expr = context.createBitwiseNotExpression(expr, unaryTokenColumn);
+					expr = context.createBitwiseNotExpression(location, expr);
 					break;
 				case jsc.Token.Kind.MINUS:
-					expr = context.createNegateExpression(expr, unaryTokenColumn);
+					expr = context.createNegateExpression(location, expr);
 					break;
 				case jsc.Token.Kind.PLUS:
-					expr = context.createUnaryPlusExpression(expr, unaryTokenColumn);
+					expr = context.createUnaryPlusExpression(location, expr);
 					break;
 				case jsc.Token.Kind.PLUSPLUS:
 				case jsc.Token.Kind.PLUSPLUS_AUTO:
-					expr = context.createPrefixExpression(expr, jsc.AST.AssignmentOperatorKind.PLUS_PLUS, unaryTokenColumn);
+					expr = context.createPrefixExpression(location, expr, jsc.AST.AssignmentOperatorKind.PLUS_PLUS);
 					this.state.assignmentCount++;
 					break;
 				case jsc.Token.Kind.MINUSMINUS:
 				case jsc.Token.Kind.MINUSMINUS_AUTO:
-					expr = context.createPrefixExpression(expr, jsc.AST.AssignmentOperatorKind.MINUS_MINUS, unaryTokenColumn);
+					expr = context.createPrefixExpression(location, expr, jsc.AST.AssignmentOperatorKind.MINUS_MINUS);
 					this.state.assignmentCount++;
 					break;
 				case jsc.Token.Kind.TYPEOF:
-					expr = context.createTypeOfExpression(expr, unaryTokenColumn);
+					expr = context.createTypeOfExpression(location, expr);
 					break;
 				case jsc.Token.Kind.VOID:
-					expr = context.createVoidExpression(expr, unaryTokenColumn);
+					expr = context.createVoidExpression(location, expr);
 					break;
 				case jsc.Token.Kind.DELETE:
 					this.failWhenTrueInStrictMode(expr.isResolve, "Cannot delete unqualified property '" + this.state.lastIdentifier + "' in strict mode.");
-					expr = context.createDeleteExpression(expr, context.lastUnaryTokenBegin, endColumn, endColumn, unaryTokenColumn);
+					expr = context.createDeleteExpression(location, expr);
 					break;
 				default:
 					this.throwUnreachableError();
 					break;
 			}
-			
-			beginColumn = context.lastUnaryTokenBegin;
-			
+
 			tokenStackDepth--;
 			context.popUnaryToken();
 		}
@@ -2308,13 +2324,12 @@ jsc.Parser = Object.define({
 	},
 	
 	parseMember: function(context) {
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
+		var beginLocation = this.tokenLocation;
 		var baseExpr = null;
 		var baseIsSuper = false;
 		var baseIsNewTarget = false;
 		var expr = null;
-		var beginColumn = this.tokenBegin;
-		var endColumn = 0;
 		var newCount = 0;
 		var nonLHSCount = 0;
 		var initialAssignmentCount = 0;
@@ -2343,7 +2358,7 @@ jsc.Parser = Object.define({
 					this.failWhenFalse(this.currentScope.isFunction, "Using 'new.target' is only valid inside functions.");
 
 					baseIsNewTarget = true;
-					baseExpr = context.createNewTargetExpression(column);
+					baseExpr = context.createNewTargetExpression(location);
 
 					newCount--;
 					this.next();
@@ -2355,7 +2370,7 @@ jsc.Parser = Object.define({
 		{
 			this.failWhenFalse(this.currentScope.isFunction, "Using 'super' is only valid inside functions.");
 
-			baseExpr = context.createSuperExpression(column);
+			baseExpr = context.createSuperExpression(location);
 
 			this.next();
 			this.currentScope.needsSuperBinding = true;
@@ -2370,13 +2385,12 @@ jsc.Parser = Object.define({
 		loop:
 		while(true)
 		{
-			column = this.tokenColumn;
+			location = this.tokenLocation;
 
 			switch(this.tok.kind)
 			{
 				case jsc.Token.Kind.OPEN_BRACKET:
 				{
-					endColumn = this.lastTokenEnd;
 					nonLHSCount = this.state.nonLHSCount;
 					initialAssignmentCount = this.state.assignmentCount;
 					
@@ -2386,7 +2400,7 @@ jsc.Parser = Object.define({
 					expr = this.parseExpression(context);
 					this.failWhenNull(expr);
 					
-					baseExpr = context.createBracketAccessorExpression(baseExpr, expr, initialAssignmentCount !== this.state.assignmentCount, column);
+					baseExpr = context.createBracketAccessorExpression(location, baseExpr, expr, initialAssignmentCount !== this.state.assignmentCount);
 					
 					this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACKET);
 					this.state.nonLHSCount = nonLHSCount;
@@ -2401,23 +2415,21 @@ jsc.Parser = Object.define({
 					if(newCount > 0)
 					{
 						newCount--;
-						endColumn = this.lastTokenEnd;
-						
+
 						expr = this.parseArguments(context, true);
 						this.failWhenNull(expr);
 						
-						baseExpr = context.createNewExpressionWithArguments(baseExpr, expr, column);
+						baseExpr = context.createNewExpressionWithArguments(location, baseExpr, expr);
 					}
 					else
 					{
-						endColumn = this.lastTokenEnd;
 						expr = this.parseArguments(context, true);
 						this.failWhenNull(expr);
 
 						if(baseIsSuper)
 							this.currentScope.hasDirectSuper = true;
 						
-						baseExpr = context.createFunctionCallExpression(baseExpr, expr, column);
+						baseExpr = context.createFunctionCallExpression(beginLocation, baseExpr, expr);
 					}
 					
 					this.state.nonLHSCount = nonLHSCount;
@@ -2426,13 +2438,11 @@ jsc.Parser = Object.define({
 				case jsc.Token.Kind.DOT:
 				{
 					this.state.nonTrivialExprCount++;
-					
-					endColumn = this.lastTokenEnd;
-					
+
 					this.nextIdentifier();
 					this.matchOrFail(jsc.Token.Kind.IDENTIFIER);
 					
-					baseExpr = context.createDotAccessorExpression(this.tok.value, baseExpr, column);
+					baseExpr = context.createDotAccessorExpression(location, this.tok.value, baseExpr);
 					
 					this.next();
 					break;
@@ -2452,7 +2462,7 @@ jsc.Parser = Object.define({
 		this.failWhenTrue(baseIsSuper, "Cannot reference super.");
 
 		while(newCount-- > 0)
-			baseExpr = context.createNewExpression(baseExpr, column);
+			baseExpr = context.createNewExpression(location, baseExpr);
 			
 		return baseExpr;
 	},
@@ -2461,8 +2471,8 @@ jsc.Parser = Object.define({
 		var name = null;
 		var value = null;
 		var expr = null;
-		var beginColumn = null;
-		var column = this.tokenColumn;
+		var begin = null;
+		var location = this.tokenLocation;
 
 		switch(this.tok.kind)
 		{
@@ -2476,7 +2486,7 @@ jsc.Parser = Object.define({
 				functionInfo = this.parseFunction(context, jsc.Parser.Mode.FUNCTION, false, false, jsc.Parser.ConstructorKind.NONE, jsc.Parser.FunctionParseKind.NORMAL, false, funcKeywordBegin);
 				this.failWhenNull(functionInfo, "Cannot parse function expression.");
 
-				return context.createFunctionExpression(functionInfo.name, functionInfo.body, functionInfo.parameters, functionInfo.begin, functionInfo.end, functionInfo.beginLine, functionInfo.endLine, functionInfo.bodyBeginColumn, column);
+				return context.createFunctionExpression(location, functionInfo);
 			}
 			case jsc.Token.Kind.CLASS:
 			{
@@ -2504,7 +2514,7 @@ jsc.Parser = Object.define({
 			case jsc.Token.Kind.THIS:
 			{
 				this.next();
-				return context.createThisExpression(column);
+				return context.createThisExpression(location);
 			}
 			case jsc.Token.Kind.IDENTIFIER:
 			case jsc.Token.Kind.LET:
@@ -2515,7 +2525,7 @@ jsc.Parser = Object.define({
 					break;
 				}
 
-				beginColumn = this.tokenBegin;
+				begin = this.tokenBeginPosition;
 				name = this.tok.value;
 				
 				this.next();
@@ -2523,33 +2533,33 @@ jsc.Parser = Object.define({
 				this.currentScope.useVariable(name);
 				this.state.lastIdentifier = name;
 				
-				return context.createResolveExpression(name, beginColumn, column);
+				return context.createResolveExpression(location, name, begin);
 			}
 			case jsc.Token.Kind.STRING:
 			{
 				value = this.tok.value;
 				this.next();
 				
-				return context.createStringExpression(value, column);
+				return context.createStringExpression(location, value);
 			}
 			case jsc.Token.Kind.DOUBLE:
 			{
 				value = this.tok.value;
 				this.next();
 				
-				return context.createDoubleExpression(value, column);
+				return context.createDoubleExpression(location, value);
 			}
 			case jsc.Token.Kind.INTEGER:
 			{
 				value = this.tok.value;
 				this.next();
 
-				return context.createIntegerExpression(value, column);
+				return context.createIntegerExpression(location, value);
 			}
 			case jsc.Token.Kind.NULL:
 			{
 				this.next();
-				return context.createNullExpression(column);
+				return context.createNullExpression(location);
 			}
 			case jsc.Token.Kind.TRUE:
 			case jsc.Token.Kind.FALSE:
@@ -2557,7 +2567,7 @@ jsc.Parser = Object.define({
 				value = (this.tok.kind === jsc.Token.Kind.TRUE);
 
 				this.next();
-				return context.createBooleanExpression(value, column);
+				return context.createBooleanExpression(location, value);
 			}
 			case jsc.Token.Kind.DIVIDE_EQUAL:
 			case jsc.Token.Kind.DIV:
@@ -2566,13 +2576,12 @@ jsc.Parser = Object.define({
 				var patternPrefix = (this.match(jsc.Token.Kind.DIVIDE_EQUAL) ? '=' : null);
 				var props = this.lexer.scanRegEx(patternPrefix);
 
-				beginColumn = this.tokenBegin;
-				expr = null;
-				
+				location = this.tokenLocation;
+
 				this.failWhenNull(props);
 				this.next();
 				
-				expr = context.createRegExpExpression(props.pattern, props.flags, beginColumn, column);
+				expr = context.createRegExpExpression(location, props.pattern, props.flags);
 				
 				// TODO: check the syntax of the pattern
 				
@@ -2592,9 +2601,9 @@ jsc.Parser = Object.define({
 	},
 	
 	parseFunctionDeclaration: function(context, isExported) {
-		var functionInfo = null;
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var begin = this.tokenBegin;
+		var functionInfo = null;
 
 		this.matchOrFail(jsc.Token.Kind.FUNCTION);
 		this.next();
@@ -2611,24 +2620,16 @@ jsc.Parser = Object.define({
 			this.currentScope.exportBinding(functionInfo.name);
 		}
 
-		return context.createFunctionDeclarationStatement(
-			functionInfo.name,
-			functionInfo.body,
-			functionInfo.parameters,
-			functionInfo.begin,
-			functionInfo.end,
-			functionInfo.beginLine,
-			functionInfo.endLine,
-			functionInfo.bodyBeginColumn,
-			column);
+		return context.createFunctionDeclarationStatement(location, functionInfo);
 	},
 	
 	parseFunction: function(context, mode, needsName, isNameInContainingScope, constructorKind, parseKind, isSuperBindingNeeded, functionKeywordBegin) {
 		var name = null;
-		var begin = 0;
+		var location = null;
+		var begin = null;
+		var beginColumn = 0;
 		var nameBegin = this.tokenBegin;
 		var parametersBegin = 0;
-		var beginColumn = 0;
 		var lastName = null;
 		var bodyKind = jsc.Parser.FunctionBodyKind.NORMAL;
 		var functionScope = null;
@@ -2667,9 +2668,9 @@ jsc.Parser = Object.define({
 						return null;
 					}
 
-					begin = this.tokenBegin;
+					begin = this.tokenLocation;
 					beginColumn = this.tokenColumn;
-					functionInfo.beginLine = this.tokenBeginLine;
+					functionInfo.beginLine = this.tokenLine;
 
 					parametersBegin = this.parseFunctionParameters(context, mode, functionInfo);
 					this.failWhenError();
@@ -2690,9 +2691,9 @@ jsc.Parser = Object.define({
 					if(mode !== jsc.Parser.Mode.ARROW_FUNCTION)
 						this.fail("Invalid parse mode for current function.");
 
-					begin = this.tokenBegin;
+					begin = this.tokenLocation;
 					beginColumn = this.tokenColumn;
-					functionInfo.beginLine = this.tokenBeginLine;
+					functionInfo.beginLine = this.tokenLine;
 
 					parametersBegin = this.parseFunctionParameters(context, mode, functionInfo);
 					this.failWhenError();
@@ -2719,7 +2720,7 @@ jsc.Parser = Object.define({
 			this.restoreState(lastState);
 
 			this.failWhenNull(functionInfo.body, "Unable to parse the body of this " + this.getFunctionModeDescription(mode));
-			functionInfo.body.endOffset = this.lexer.position;
+			functionInfo.body.end = this.lexer.position;
 
 			if(functionScope.strictMode && !jsc.Utils.isStringNullOrEmpty(functionInfo.name))
 				this.failWhenTrue(jsc.Parser.KnownIdentifiers.isEvalOrArguments(functionInfo.name), "The function name '" + functionInfo.name + "' is not valid in strict mode.");
@@ -2733,10 +2734,14 @@ jsc.Parser = Object.define({
 			if(functionScope.needsSuperBinding)
 				this.failWhenFalse(isSuperBindingNeeded, "Can only use 'super' in a method of a derived class.");
 
-			functionInfo.end = this.tokenEnd;
+			location = this.tokenLocation;
+			functionInfo.end = this.tok.valueInfo.begin;
 
 			if(bodyKind === jsc.Parser.FunctionBodyKind.ARROW_EXPRESSION)
-				functionInfo.end = this.lastTokenEnd;
+			{
+				location = this.lastTokenLocation;
+				functionInfo.end = location.end;
+			}
 		}
 		finally
 		{
@@ -2751,7 +2756,7 @@ jsc.Parser = Object.define({
 			this.next();
 		}
 
-		functionInfo.endLine = this.state.lastLine;
+		functionInfo.endLine = this.state.lastTokenEndPosition.line;
 
 		return functionInfo;
 	},
@@ -2759,13 +2764,17 @@ jsc.Parser = Object.define({
 	parseFunctionBody: function(context, begin, beginColumn, functionKeywordBegin, nameBegin, parametersBegin, constructorKind, bodyKind, parameterCount, mode) {
 		var isArrowFunction = (bodyKind !== jsc.Parser.FunctionBodyKind.NORMAL);
 		var isArrowFunctionExpression = (bodyKind === jsc.Parser.FunctionBodyKind.ARROW_EXPRESSION);
+		var endColumn = 0;
 
 		if(!isArrowFunctionExpression)
 		{
 			this.next();
 
 			if(this.match(jsc.Token.Kind.CLOSE_BRACE))
-				return context.createFunctionMetadata(begin, this.tokenEnd, beginColumn, this.tokenColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
+			{
+				endColumn = this.tokenColumn;
+				return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
+			}
 		}
 
 		var lastStatementDepth = this.state.statementDepth;
@@ -2784,7 +2793,8 @@ jsc.Parser = Object.define({
 			this.state.statementDepth = lastStatementDepth;
 		}
 
-		return context.createFunctionMetadata(begin, this.tokenEnd, beginColumn, this.tokenColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
+		endColumn = this.tokenColumn;
+		return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
 	},
 
 	parseFunctionParameters: function(context, mode, functionInfoRef) {
@@ -2923,7 +2933,7 @@ jsc.Parser = Object.define({
 	},
 	
 	parseArguments: function(context, allowSpread) {
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var argument = null;
 
 		this.consumeOrFail(jsc.Token.Kind.OPEN_PAREN);
@@ -2931,23 +2941,24 @@ jsc.Parser = Object.define({
 		if(this.match(jsc.Token.Kind.CLOSE_PAREN))
 		{
 			this.next();
-			return context.createArgumentsList(column);
+			return context.createArgumentsList(location);
 		}
 
 		argument = this.parseArgument(context, allowSpread);
 		this.failWhenNull(argument);
 
-		var args = context.createArgumentsList(column, argument, null);
+		var args = context.createArgumentsList(location, argument, null);
 		var next = args;
 
 		while(this.match(jsc.Token.Kind.COMMA))
 		{
+			location = this.tokenLocation;
 			this.next();
 
 			argument = this.parseArgument(context, allowSpread);
 			this.failWhenNull(argument);
 
-			next = context.createArgumentsList(column, argument, next);
+			next = context.createArgumentsList(location, argument, next);
 		}
 
 		this.failWhenTrue(this.match(jsc.Token.Kind.DOTDOTDOT), "The '...' operator must come before a target expression.");
@@ -2957,7 +2968,7 @@ jsc.Parser = Object.define({
 	},
 
 	parseArgument: function(context, allowSpread) {
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var argument = null;
 
 		if(this.match(jsc.Token.Kind.DOTDOTDOT) && allowSpread)
@@ -2966,7 +2977,7 @@ jsc.Parser = Object.define({
 			argument = this.parseAssignment(context);
 			this.failWhenNull(argument, "Unable to parse spread expression.");
 
-			return context.createSpreadExpression(argument, column);
+			return context.createSpreadExpression(location, argument);
 		}
 
 		return this.parseAssignment(context);
@@ -2974,14 +2985,13 @@ jsc.Parser = Object.define({
 
 	parseArrowFunctionExpression: function(context) {
 		var functionInfo = null;
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var begin = this.tokenBegin;
 
 		functionInfo = this.parseFunction(context, jsc.Parser.Mode.ARROW_FUNCTION, false, true, jsc.Parser.ConstructorKind.NONE, jsc.Parser.FunctionParseKind.ARROW, false, begin);
-
 		this.failWhenNull(functionInfo, "Unable to parse arrow function expression.");
 
-		return context.createArrowFunctionExpression(functionInfo.name, functionInfo.body, functionInfo.begin, functionInfo.end, functionInfo.beginLine, functionInfo.endLine, functionInfo.bodyBeginColumn, column);
+		return context.createArrowFunctionExpression(location, functionInfo);
 	},
 
 	parseArrowFunctionSingleExpressionBodyStatementList: function(context) {
@@ -2991,35 +3001,36 @@ jsc.Parser = Object.define({
 			return null;
 		}
 
-		var begin = this.tokenBegin;
-		var end = 0;
+		var location = this.tokenLocation;
+		var begin = this.tokenBeginPosition;
+		var end = null;
 		var expr = null;
 		var bodyStatement = null;
 
 		expr = this.parseAssignment(context);
 		this.failWhenNull(expr, "Cannot parse the arrow function expression.");
 
-		expr.endOffset = this.lastTokenEnd;
+		expr.end = this.lastTokenEndPosition.begin;
 
 		this.failWhenFalse(this.isEndOfArrowFunction(), "Expected a ';'  ']'  '}'  ')'  ',' a line terminator or EOF following a arrow function statement");
 
-		end = this.tokenEnd;
+		end = this.tokenEndPosition;
 
 		if(!this.lexer.hasLineTerminator)
 		{
-			this.tok.begin = this.lexer.position;
-			this.tok.beginLine = this.lexer.lineNumber;
-			this.tok.column = this.lexer.columnNumber;
+			this.tok.valueInfo.line = this.lexer.lineNumber;
+			this.tok.valueInfo.lineBegin = this.lexer.lineBegin;
+			this.tok.valueInfo.begin = this.lexer.position;
 		}
 
-		bodyStatement = context.createReturnStatement(expr, begin, end, this.tokenBeginLine, this.tokenEndLine, this.tokenColumn);
-		bodyStatement.endOffset = this.lastTokenEnd;
+		bodyStatement = context.createReturnStatement(location, begin, end, expr);
+		bodyStatement.end = this.lastTokenEndPosition.begin;
 
 		return [bodyStatement];
 	},
 
 	parseObjectLiteral: function(context, asStrict) {
-		var column = this.tokenColumn;
+		var location = null;
 		var nonLHSCount = 0;
 		var restorePoint = null;
 
@@ -3028,12 +3039,13 @@ jsc.Parser = Object.define({
 
 		this.consumeOrFail(jsc.Token.Kind.OPEN_BRACE);
 
+		location = this.tokenLocation;
 		nonLHSCount = this.state.nonLHSCount;
 
 		if(this.match(jsc.Token.Kind.CLOSE_BRACE))
 		{
 			this.next();
-			return context.createObjectLiteralExpression(column);
+			return context.createObjectLiteralExpression(location);
 		}
 
 		var prop = this.parseProperty(context);
@@ -3049,18 +3061,17 @@ jsc.Parser = Object.define({
 		}
 
 		var hasUnderscoreProto = (this.needsDuplicateUnderscoreProtoCheck(context, prop) && prop.name === jsc.Parser.KnownIdentifiers.Proto);
-		var properties = context.createPropertyList(column, prop);
+		var properties = context.createPropertyList(location, prop);
 		var next = properties;
 
 		while(this.match(jsc.Token.Kind.COMMA))
 		{
-			var propColumn = this.tokenColumn;
-
 			this.next();
 
 			if(this.match(jsc.Token.Kind.CLOSE_BRACE))
 				break;
 
+			location = this.tokenLocation;
 			prop = this.parseProperty(context);
 			this.failWhenNull(prop, "Cannot parse object literal property.");
 
@@ -3082,13 +3093,15 @@ jsc.Parser = Object.define({
 				}
 			}
 
-			next = context.createPropertyList(propColumn, prop, next);
+			next = context.createPropertyList(location, prop, next);
 		}
+
+		location = this.tokenLocation;
 
 		this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
 		this.state.nonLHSCount = nonLHSCount;
 
-		return context.createObjectLiteralExpression(column, properties);
+		return context.createObjectLiteralExpression(location, properties);
 	},
 	
 	parseProperty: function(context) {
@@ -3117,6 +3130,7 @@ jsc.Parser = Object.define({
 
 						node = this.parseAssignment(context);
 						this.failWhenNull(node, "Cannot parse expression for property declaration.");
+						node.end = this.lexer.position;
 
 						return context.createProperty(id, node, jsc.AST.PropertyKindFlags.CONSTANT, jsc.AST.PropertyPutKind.UNKNOWN);
 					}
@@ -3175,6 +3189,7 @@ jsc.Parser = Object.define({
 					
 					node = this.parseAssignment(context);
 					this.failWhenNull(node, "Cannot parse expression for property declaration.");
+					node.end = this.lexer.position;
 
 					return context.createProperty(id, node, jsc.AST.PropertyKindFlags.CONSTANT, jsc.AST.PropertyPutKind.UNKNOWN);
 				}
@@ -3199,6 +3214,7 @@ jsc.Parser = Object.define({
 
 					node = this.parseAssignment(context);
 					this.failWhenNull(node, "Cannot parse expression for property declaration.");
+					node.end = this.lexer.position;
 
 					return context.createProperty(propertyName, node, (jsc.AST.PropertyKindFlags.CONSTANT | jsc.AST.PropertyKindFlags.COMPUTED), jsc.AST.PropertyPutKind.UNKNOWN);
 				}
@@ -3210,30 +3226,21 @@ jsc.Parser = Object.define({
 	},
 
 	parsePropertyMethod: function(context, methodName) {
+		var location = this.tokenLocation;
 		var begin = this.tokenBegin;
-		var column = this.tokenColumn;
 		var methodInfo = this.parseFunction(context, jsc.Parser.Mode.METHOD, false, false, jsc.Parser.ConstructorKind.NONE, jsc.Parser.FunctionParseKind.NORMAL, false, begin);
 
 		this.failWhenNull(methodInfo, "Unable to parse property method.");
 
 		methodInfo.name = methodName;
-		return context.createFunctionExpression(
-			methodInfo.name,
-			methodInfo.body,
-			methodInfo.parameters,
-			methodInfo.begin,
-			methodInfo.end,
-			methodInfo.beginLine,
-			methodInfo.endLine,
-			methodInfo.bodyBeginColumn,
-			column);
+		return context.createFunctionExpression(location, methodInfo);
 	},
 
 	parseGetterSetter: function(context, kind, begin, constructorKind, needsSuperBinding) {
 		constructorKind = jsc.Utils.valueOrDefault(constructorKind, jsc.Parser.ConstructorKind.NONE);
 		needsSuperBinding = jsc.Utils.valueOrDefault(needsSuperBinding, false);
 
-		var column = this.tokenColumn;
+		var location = this.tokenLocation;
 		var propertyName = this.tok.value;
 		var functionInfo = null;
 
@@ -3242,11 +3249,7 @@ jsc.Parser = Object.define({
 			this.failWhenTrue((needsSuperBinding && propertyName === jsc.Parser.KnownIdentifiers.Prototype), "Cannot declare a getter or setter named 'prototype'.");
 			this.failWhenTrue((needsSuperBinding && propertyName === jsc.Parser.KnownIdentifiers.Constructor), "Cannot declare a getter or setter named 'constructor'.");
 		}
-		else if(this.tok.kind === jsc.Token.Kind.DOUBLE || this.tok.kind === jsc.Token.Kind.INTEGER)
-		{
-			propertyName = propertyName.toString();
-		}
-		else
+		else if(this.tok.kind !== jsc.Token.Kind.DOUBLE && this.tok.kind !== jsc.Token.Kind.INTEGER)
 		{
 			this.fail();
 		}
@@ -3268,21 +3271,11 @@ jsc.Parser = Object.define({
 			this.failWhenNull(functionInfo, "Unable to parse setter definition.");
 		}
 
-		return context.createGetterOrSetterProperty(
-			propertyName,
-			kind,
-			needsSuperBinding,
-			functionInfo.body,
-			functionInfo.begin,
-			functionInfo.end,
-			functionInfo.beginLine,
-			functionInfo.endLine,
-			functionInfo.bodyBeginColumn,
-			column);
+		return context.createGetterOrSetterProperty(location, propertyName, kind, needsSuperBinding, functionInfo);
 	},
 
 	parseArrayLiteral: function(context) {
-		var column = this.tokenColumn;
+		var location = null;
 		var nonLHSCount = this.state.nonLHSCount;
 		var elisions = 0;
 		var elem = null;
@@ -3297,23 +3290,26 @@ jsc.Parser = Object.define({
 
 		if(this.match(jsc.Token.Kind.CLOSE_BRACKET))
 		{
+			location = this.tokenLocation;
 			this.next();
-			return context.createArrayExpression(column, null, elisions);
+			return context.createArrayExpression(location, null, elisions);
 		}
 
 		if(!this.match(jsc.Token.Kind.DOTDOTDOT))
 			elem = this.parseAssignment(context);
 		else
 		{
+			location = this.tokenLocation;
+
 			this.next();
 
 			elem = this.parseAssignment(context);
 			this.failWhenNull(elem, "Unable to parse the subject of a spread operation.");
 
-			elem = context.createSpreadExpression(elem, column);
+			elem = context.createSpreadExpression(location, elem);
 		}
 
-		this.failWhenNull(elem);
+		this.failWhenNull(elem, "Cannot parse element in array literal.");
 
 		var elements = context.createArrayElementList(elem, elisions);
 		var next = elements;
@@ -3332,29 +3328,33 @@ jsc.Parser = Object.define({
 
 			if(this.match(jsc.Token.Kind.CLOSE_BRACKET))
 			{
+				location = this.tokenLocation;
+
 				this.next();
-				return context.createArrayExpression(column, elements, elisions);
+				return context.createArrayExpression(location, elements, elisions);
 			}
 
 			if(this.match(jsc.Token.Kind.DOTDOTDOT))
 			{
-				var spreadColumn = this.tokenColumn;
+				location = this.tokenLocation;
 
 				this.next();
 
 				elem = this.parseAssignment(context);
 				this.failWhenNull(elem, "Unable to parse the subject of a spread operation.");
 
-				elem = context.createSpreadExpression(elem, spreadColumn);
+				elem = context.createSpreadExpression(location, elem);
 				next = context.createArrayElementList(elem, elisions, next);
 				continue;
 			}
 
 			elem = this.parseAssignment(context);
-			this.failWhenNull(elem);
+			this.failWhenNull(elem, "Cannot parse element in array literal.");
 			
 			next = context.createArrayElementList(elem, elisions, next);
 		}
+
+		location = this.tokenLocation;
 
 		if(!this.consume(jsc.Token.Kind.CLOSE_BRACKET))
 		{
@@ -3364,7 +3364,7 @@ jsc.Parser = Object.define({
 
 		this.state.nonLHSCount = nonLHSCount;
 
-		return context.createArrayExpression(column, elements);
+		return context.createArrayExpression(location, elements);
 	},
 
 	parseTemplateLiteral: function(context) {
@@ -3447,25 +3447,23 @@ jsc.Parser = Object.define({
 	},
 
 	next: function() {
-		this.state.lastLine = this.tokenEndLine;
-		this.state.lastColumn = this.tokenColumn;
-		this.state.lastTokenBegin = this.tokenBegin;
-		this.state.lastTokenEnd = this.tokenEnd;
+		var lastTokenLine = this.tokenLine;
+		var lastTokenLineBegin = this.tokenLineBegin;
+		var lastTokenEnd = this.tok.location.end;
 
-		this.lexer.lastLineNumber = this.state.lastLine;
-		this.lexer.lastColumnNumber = this.state.lastColumn;
+		this.state.lastTokenEndPosition = new jsc.TextPosition(lastTokenLine, lastTokenEnd, lastTokenLineBegin);
+		this.lexer.lastLineNumber = lastTokenLine;
 
 		this.tok.kind = this.lexer.nextToken(this.tok, this.inStrictMode);
 	},
 	
 	nextIdentifier: function() {
-		this.state.lastLine = this.tokenEndLine;
-		this.state.lastColumn = this.tokenColumn;
-		this.state.lastTokenBegin = this.tokenBegin;
-		this.state.lastTokenEnd = this.tokenEnd;
+		var lastTokenLine = this.tokenLine;
+		var lastTokenLineBegin = this.tokenLineBegin;
+		var lastTokenEnd = this.tok.location.end;
 
-		this.lexer.lastLineNumber = this.state.lastLine;
-		this.lexer.lastColumnNumber = this.state.lastColumn;
+		this.state.lastTokenEndPosition = new jsc.TextPosition(lastTokenLine, lastTokenEnd, lastTokenLineBegin);
+		this.lexer.lastLineNumber = lastTokenLine;
 
 		this.tok.kind = this.lexer.nextIdentifier(this.tok, this.inStrictMode);
 	},
@@ -3779,9 +3777,11 @@ jsc.Parser = Object.define({
 	},
 
 	setErrorImpl: function(message, throwError) {
+		var location = this.lastTokenLocation;
+
 		this.state.errorFileName = this.sourceCode.url;
-		this.state.errorLine = this.state.lastLine;
-		this.state.errorColumn = this.state.lastTokenBegin - this.lexer.lastLinePosition - 1;
+		this.state.errorLine = location.line;
+		this.state.errorColumn = (location.begin - location.lineBegin) + 1;
 		this.state.error = message;
 
 		if(throwError)
@@ -3790,6 +3790,9 @@ jsc.Parser = Object.define({
 
 	clearError: function() {
 		this.state.error = null;
+		this.state.errorColumn = 0;
+		this.state.errorLine = 0;
+		this.state.errorFileName = null;
 	},
 	
 	throwUnreachableError: function() {
@@ -3970,29 +3973,27 @@ jsc.ParserState = Object.define({
 /** @class */
 jsc.ParserRestorePoint = Object.define({
 	initialize: function() {
-		this.position = 0;
+		this.begin = 0;
+		this.lineBegin = 0;
 		this.lineNumber = 0;
 		this.lastLineNumber = 0;
-		this.columnNumber = 0;
-		this.lastColumnNumber = 0;
 	},
 
 	save: function(parser) {
-		this.position = parser.tokenBegin;
+		this.begin = parser.tokenBegin;
+		this.lineBegin = parser.tokenLineBegin;
 		this.lineNumber = parser.lexer.lineNumber;
 		this.lastLineNumber = parser.lexer.lastLineNumber;
-		this.columnNumber = parser.lexer.columnNumber;
-		this.lastColumnNumber = parser.lexer.lastColumnNumber;
 	},
 
 	restore: function(parser) {
-		parser.lexer.position = this.position;
+		parser.clearError();
+		parser.lexer.resetPosition(this.begin, this.lineBegin);
+
 		parser.next();
 
 		parser.lexer.lastLineNumber = this.lastLineNumber;
 		parser.lexer.lineNumber = this.lineNumber;
-		parser.lexer.lastColumnNumber = this.lastColumnNumber;
-		parser.lexer.columnNumber = this.columnNumber;
 	}
 });
 
@@ -4006,8 +4007,6 @@ jsc.ParserForLoopContext = Object.define({
 		this.forLoopConstHasInitializer = false;
 		this.nonLHSCount = 0;
 		this.decls = null;
-		this.declsBegin = 0;
-		this.declsEnd = 0;
 		this.pattern = null;
 		this.lexicalVariables = null;
 		this.lexicalScopeRef = null;

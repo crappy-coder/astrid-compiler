@@ -7,14 +7,14 @@ jsc.Lexer = Object.define({
 
 		this.state = {
 			lastTokenKind: jsc.Token.Kind.UNKNOWN,
-			lastLineNumber: 1,
-			position: sourceCode.offsetBegin,
-			end: sourceCode.offsetEnd,
-			lineNumber: sourceCode.startLine,
-			linePosition: 0,
-			lastLinePosition: 0,
-			columnNumber: 0,
-			lastColumnNumber: 0,
+			lastTokenLocation: new jsc.TokenLocation(),
+			lastLineNumber: 0,
+			sourcePosition: sourceCode.begin,
+			sourceBegin: sourceCode.begin,
+			sourceEnd: sourceCode.end,
+			lineBegin: sourceCode.begin,
+			lineNumber: sourceCode.beginLine,
+			positionBeforeLastNewLine: new jsc.TextPosition(),
 			isLineBegin: true,
 			hasLineTerminator: false,
 			error: null,
@@ -23,11 +23,14 @@ jsc.Lexer = Object.define({
 
 		this.sourceCode = sourceCode;
 		this.sourceBuffer = this.sourceCode.buffer;
-		this.chBuffer = [];
-		this.ch = this.getChar();
-		this.chCode = this.getCharCode();
+		this.chBuffer = null;
+		this.ch = null;
 		this.chLast = null;
+		this.chCode = 0;
 		this.comments = [];
+
+		// start at the source offset
+		this.position = this.state.sourceBegin;
 	},
 
 	// gets or sets whether or not to output debugging information
@@ -38,17 +41,34 @@ jsc.Lexer = Object.define({
 		this.state.debugMode = value;
 	},
 
+	/** gets the remaining number of characters to lex. */
+	get remainingCharCount() {
+		return (this.state.sourceEnd - this.state.sourcePosition);
+	},
+
+	get textPosition() {
+		return new jsc.TextPosition(this.lineNumber, this.position, this.lineBegin);
+	},
+
 	// gets or sets the lexers current position within the buffer
 	get position() {
-		return this.state.position;
+		return this.state.sourcePosition;
 	},
 	set position(value) {
 		this.clearError();
-		this.state.position = value;
+		this.state.sourcePosition = value;
 		this.chBuffer = [];
 		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
+	},
+
+	/** gets or sets the start position of a line */
+	get lineBegin() {
+		return this.state.lineBegin;
+	},
+	set lineBegin(value) {
+		this.state.lineBegin = value;
 	},
 
 
@@ -60,23 +80,6 @@ jsc.Lexer = Object.define({
 		this.state.lineNumber = value;
 	},
 
-	// get or sets the current column number
-	get columnNumber() {
-		return this.state.columnNumber;
-	},
-	set columnNumber(value) {
-		this.state.columnNumber = value;
-	},
-
-	// gets or sets the last column number
-	get lastColumnNumber() {
-		return this.state.lastColumnNumber;
-	},
-	set lastColumnNumber(value) {
-		this.state.lastColumnNumber = value;
-	},
-	
-
 	// gets or sets the last line number
 	get lastLineNumber() {
 		return this.state.lastLineNumber;
@@ -84,19 +87,11 @@ jsc.Lexer = Object.define({
 	set lastLineNumber(value) {
 		this.state.lastLineNumber = value;
 	},
-	
-	
-	// gets the start position of the current line
-	get linePosition() {
-		return this.state.linePosition;
-	},
-	
 
-	// gets the start position of the last line
-	get lastLinePosition() {
-		return this.state.lastLinePosition;
+	// gets the last token location
+	get lastTokenLocation() {
+		return this.state.lastTokenLocation;
 	},
-	
 
 	// gets the last token kind
 	get lastTokenKind() {
@@ -118,14 +113,13 @@ jsc.Lexer = Object.define({
 
 	// gets whether or not we've reached the end
 	get isEnd() {
-		return (!this.chCode && this.position === this.state.end);
+		return (this.state.sourcePosition >= this.state.sourceEnd);
 	},
 
 
 	// gets whether or not the next token is a colon
 	get isNextTokenColon() {
-
-		while(this.position < this.state.end)
+		while(!this.isEnd)
 		{
 			var nextChar = this.peekChar(0);
 
@@ -152,7 +146,8 @@ jsc.Lexer = Object.define({
 
 
 	next: function() {
-		this.state.position++;
+		++this.state.sourcePosition;
+
 		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
@@ -160,18 +155,17 @@ jsc.Lexer = Object.define({
 
 	nextLine: function() {
 		if(!jsc.TextUtils.isLineTerminator(this.ch))
-			this.throwOnError("Expected a line terminator");
+			this.throwOnError("Expected a line terminator.");
 
 		var prevChar = this.ch;
 
+		this.state.positionBeforeLastNewLine = this.textPosition;
 		this.next();
 
 		if(prevChar === '\r' && this.ch === '\n')
 			this.next();
 
-		this.state.lastLinePosition = this.state.linePosition;
-		this.state.linePosition = this.position;
-		this.lineNumber++;
+		++this.lineNumber;
 	},
 
 	nextToken: function(tok, inStrictMode) {
@@ -183,6 +177,7 @@ jsc.Lexer = Object.define({
 			this.throwOnError("The character buffer is not empty. Cannot parse the next token with a non-empty character buffer.");
 
 		this.state.hasLineTerminator = false;
+		this.state.lastTokenLocation = tok.location.clone();
 
 		var tokKind = jsc.Token.Kind.ERROR;
 		var hasError = false;
@@ -198,21 +193,35 @@ jsc.Lexer = Object.define({
 				if(this.isEnd)
 					return jsc.Token.Kind.EOF;
 
-				this.columnNumber = this.state.position - this.state.linePosition;
-
-				tok.begin = this.position;
-				tok.beginLine = this.lineNumber;
+				tok.begin = this.textPosition;
+				tok.location.begin = this.position;
 
 				switch(jsc.Lexer.getCharacterKind(this.chCode))
 				{
 					case jsc.Lexer.CharacterKind.EQUAL:
 					{
+						// '=>'
+						if(this.peekChar(1) === '>')
+						{
+							tokKind = jsc.Token.Kind.ARROW_FUNC;
+							tok.valueInfo.line = this.lineNumber;
+							tok.valueInfo.lineBegin = this.lineBegin;
+							tok.valueInfo.begin = this.position;
+
+							this.next();
+							this.next();
+
+							break loop;
+						}
+
 						this.next();
 
+						// '=='
 						if(this.ch === '=')
 						{
 							this.next();
 
+							// '==='
 							if(this.ch === '=')
 							{
 								this.next();
@@ -354,6 +363,7 @@ jsc.Lexer = Object.define({
 								continue;
 
 							hasError = true;
+							tokKind = jsc.Token.Kind.ERROR_MULTILINE_COMMENT_UNTERMINATED;
 							this.setError("Multiline comment was not properly closed.");
 							break;
 						}
@@ -568,14 +578,15 @@ jsc.Lexer = Object.define({
 					}
 					case jsc.Lexer.CharacterKind.QUOTE:
 					{
-						if(!this.parseString(tok, inStrictMode))
+						tokKind = this.parseString(tok, inStrictMode);
+
+						if(tokKind !== jsc.Token.Kind.STRING)
 						{
 							hasError = true;
 							break;
 						}
 
 						this.next();
-						tokKind = jsc.Token.Kind.STRING;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.OPEN_PAREN:
@@ -606,61 +617,137 @@ jsc.Lexer = Object.define({
 					}
 					case jsc.Lexer.CharacterKind.OPEN_BRACE:
 					{
+						tok.valueInfo.line = this.lineNumber;
+						tok.valueInfo.lineBegin = this.lineBegin;
+						tok.valueInfo.begin = this.position;
 						tokKind = jsc.Token.Kind.OPEN_BRACE;
-						tok.value = this.position;
-						this.next();
 
+						this.next();
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.CLOSE_BRACE:
 					{
+						tok.valueInfo.line = this.lineNumber;
+						tok.valueInfo.lineBegin = this.lineBegin;
+						tok.valueInfo.begin = this.position;
 						tokKind = jsc.Token.Kind.CLOSE_BRACE;
-						tok.value = this.position;
-						this.next();
 
+						this.next();
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.ZERO:
 					{
 						this.next();
 
-						if((this.ch === 'x' || this.ch === 'X') && jsc.TextUtils.isHexDigit(this.peekChar(1)))
+						// hexadecimal numbers '0xFF'
+						if(this.ch === 'x' || this.ch === 'X')
 						{
+							if(!jsc.TextUtils.isHexDigit(this.peekChar(1)))
+							{
+								tokKind = jsc.Token.Kind.ERROR_HEX_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No hexadecimal digits were found after '0x'.");
+								break;
+							}
+
+							this.next();
 							this.parseHex(tok);
-							tokKind = jsc.Token.Kind.DOUBLE;
-							validateNumericLiteral = true;
+
+							if(jsc.Lexer.isIdentifierBegin(this.chCode))
+							{
+								tokKind = jsc.Token.Kind.ERROR_HEX_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No space between hexadecimal literal and identifier.");
+								break;
+							}
+
+							tokKind = jsc.Lexer.getTokenKindForNumber(tok.value);
+							this.chBuffer = [];
+							break loop;
+						}
+
+						// binary numbers '0b1111'
+						if(this.ch === 'b' || this.ch === 'B')
+						{
+							if(!jsc.TextUtils.isBinaryDigit(this.peekChar(1)))
+							{
+								tokKind = jsc.Token.Kind.ERROR_BINARY_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No binary digits were found after '0b'.");
+								break;
+							}
+
+							this.next();
+							this.parseBinary(tok);
+
+							if(jsc.Lexer.isIdentifierBegin(this.chCode))
+							{
+								tokKind = jsc.Token.Kind.ERROR_BINARY_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No space between binary literal and identifier.");
+								break;
+							}
+
+							tokKind = jsc.Lexer.getTokenKindForNumber(tok.value);
+							this.chBuffer = [];
+							break loop;
+						}
+
+						// octal numbers '0o021'
+						if(this.ch === 'o' || this.ch === 'O')
+						{
+							if(!jsc.TextUtils.isOctalDigit(this.peekChar(1)))
+							{
+								tokKind = jsc.Token.Kind.ERROR_OCTAL_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No octal digits were found after '0o'.");
+								break;
+							}
+
+							this.next();
+							this.parseOctal(tok);
+
+							if(jsc.Lexer.isIdentifierBegin(this.chCode))
+							{
+								tokKind = jsc.Token.Kind.ERROR_OCTAL_NUMBER_UNTERMINATED;
+								hasError = true;
+
+								this.setError("No space between octal literal and identifier.");
+								break;
+							}
+
+							tokKind = jsc.Lexer.getTokenKindForNumber(tok.value);
+							this.chBuffer = [];
+							break loop;
+						}
+
+
+						this.appendChar('0');
+
+						if(inStrictMode && jsc.TextUtils.isDigit(this.ch))
+						{
+							tokKind = jsc.Token.Kind.ERROR_OCTAL_NUMBER_UNTERMINATED;
+							hasError = true;
+
+							this.setError("Decimal integer literals with a leading zero are not allowed in strict mode.");
 							break;
 						}
-						else
+
+						if(jsc.TextUtils.isOctalDigit(this.ch))
 						{
-							this.appendChar('0');
-
-							if(jsc.TextUtils.isOctalDigit(this.ch))
-							{
-								if(this.parseOctal(tok))
-								{
-									if(inStrictMode)
-									{
-										hasError = true;
-										this.setError("Octal escape sequences are not allowed in strict mode.");
-										break;
-									}
-
-									tokKind = jsc.Token.Kind.DOUBLE;
-									validateNumericLiteral = true;
-									break;
-								}
-							}
+							if(this.parseOctal(tok))
+								tokKind = jsc.Lexer.getTokenKindForNumber(tok.value);
 						}
 
-					} // fall through to Number
+					} // fall through to NUMBER
 					case jsc.Lexer.CharacterKind.NUMBER:
 					{
 						inNumber = true;
-
-						if(tokKind !== jsc.Token.Kind.DOUBLE)
-							tokKind = jsc.Token.Kind.DOUBLE;
-
 						break;
 					}
 					case jsc.Lexer.CharacterKind.LINE_TERMINATOR:
@@ -672,7 +759,8 @@ jsc.Lexer = Object.define({
 
 						this.state.isLineBegin = true;
 						this.state.hasLineTerminator = true;
-						break;
+						this.state.lineBegin = this.position;
+						continue;
 					}
 					case jsc.Lexer.CharacterKind.IDENTIFIER_BEGIN:
 					{
@@ -687,12 +775,14 @@ jsc.Lexer = Object.define({
 					case jsc.Lexer.CharacterKind.INVALID:
 					{
 						hasError = true;
+						tokKind = jsc.Token.Kind.ERROR;
 						this.setError("Invalid character.");
 						break;
 					}
 					default:
 					{
 						hasError = true;
+						tokKind = jsc.Token.Kind.ERROR;
 						this.setError("Unknown error.");
 						break;
 					}
@@ -702,40 +792,53 @@ jsc.Lexer = Object.define({
 				{
 					inNumber = false;
 
-					if(this.chLast === '.' || !this.parseDecimal(tok))
+					if(tokKind !== jsc.Token.Kind.INTEGER && tokKind !== jsc.Token.Kind.DOUBLE)
 					{
-						if(this.ch === '.')
-							this.next();
+						var isParsingAfterDecimalPoint = (this.chLast === '.');
 
-						if(this.chLast === '.')
-							this.parseNumberAfterDecimalPoint();
-
-						if(this.ch === 'e' || this.ch === 'E')
+						if(isParsingAfterDecimalPoint || !this.parseDecimal(tok))
 						{
-							if(!this.parseNumberAfterExponent())
+							if(!isParsingAfterDecimalPoint)
 							{
-								hasError = true;
-								this.setError("Non-Number was found after the exponent indicator.");
-								break;
+								tokKind = jsc.Token.Kind.INTEGER;
+
+								if(this.ch === '.')
+								{
+									isParsingAfterDecimalPoint = true;
+									this.next();
+								}
 							}
+
+							if(isParsingAfterDecimalPoint)
+							{
+								this.parseNumberAfterDecimalPoint();
+								tokKind = jsc.Token.Kind.DOUBLE;
+							}
+
+							if(this.ch === 'e' || this.ch === 'E')
+							{
+								if(!this.parseNumberAfterExponent())
+								{
+									tokKind = (this.isEnd ? jsc.Token.Kind.ERROR_NUMERIC_LITERAL_UNTERMINATED : jsc.Token.Kind.ERROR_NUMERIC_LITERAL_INVALID);
+									hasError = true;
+
+									this.setError("Non-number was found after the exponent indicator.");
+									break;
+								}
+							}
+
+							tok.value = parseFloat(this.chBuffer.join(""));
 						}
 
-						tok.value = parseFloat(this.chBuffer.join(""));
-						tokKind = jsc.Token.Kind.DOUBLE;
+						tokKind = jsc.Lexer.getTokenKindForNumber(tok.value);
 					}
 
-					validateNumericLiteral = true;
-				}
-
-				if(validateNumericLiteral)
-				{
-					validateNumericLiteral = false;
-
-					// no identifiers are allowed directly after a numeric literal, i.e. "1cm"
 					if(jsc.Lexer.isIdentifierBegin(this.chCode))
 					{
+						tokKind = (this.isEnd ? jsc.Token.Kind.ERROR_NUMERIC_LITERAL_UNTERMINATED : jsc.Token.Kind.ERROR_NUMERIC_LITERAL_INVALID);
 						hasError = true;
-						this.setError("At least one digit must occur after a decimal point.");
+
+						this.setError("No identifiers are allowed directly after numeric literal.");
 						break;
 					}
 
@@ -755,6 +858,7 @@ jsc.Lexer = Object.define({
 
 					this.state.isLineBegin = true;
 					this.state.hasLineTerminator = true;
+					this.state.lineBegin = this.position;
 
 					if(!this.isLastTokenCompletionKeyword)
 					{
@@ -767,40 +871,35 @@ jsc.Lexer = Object.define({
 				}
 			}
 
-		tok.column = this.columnNumber;
-		tok.end = this.position;
-		tok.endLine = this.lineNumber;
-
-		if(hasError)
-			return jsc.Token.Kind.ERROR;
+		tok.kind = tokKind;
+		tok.end = this.textPosition;
+		tok.location.line = this.lineNumber;
+		tok.location.end = this.position;
+		tok.location.lineBegin = this.lineBegin;
 
 		if(!inSingleLineComment)
 			this.state.isLineBegin = false;
 
-		this.state.lastTokenKind = tokKind;
-		tok.kind = tokKind
+		if(!hasError)
+			this.state.lastTokenKind = tokKind;
 
 		return tokKind;
 	},
 
 	nextIdentifier: function(tok, inStrictMode) {
-		var startOffset = this.position;
-		var startLine = this.lineNumber;
+		var beginPosition = this.textPosition;
+		var begin = this.state.sourcePosition;
+		var end = this.state.sourceEnd;
 
-		if(this.position >= this.state.end)
-		{
-			if(this.position !== this.state.end)
-				this.throwOnError("Reached the end of file.");
-
+		if(this.position >= end)
 			return this.nextToken(tok, inStrictMode);
-		}
 
 		if(!jsc.TextUtils.isAlpha(this.getChar()))
 			return this.nextToken(tok, inStrictMode);
 
 		++this.position;
 
-		while(this.position < this.state.end)
+		while(!this.isEnd)
 		{
 			if(!jsc.TextUtils.isAlphaNumeric(this.getChar()))
 				break;
@@ -808,36 +907,26 @@ jsc.Lexer = Object.define({
 			++this.position;
 		}
 
-		if(this.position >= this.state.end)
+		if(!this.isEnd)
 		{
-			this.ch = '\0';
-			this.chCode = 0;
-		}
-		else
-		{
-			var currentChar = this.getChar();
-			var currentCharCode = this.getCharCode();
-
-			if(!jsc.TextUtils.isAscii(currentChar) || currentChar === '\\' || currentChar === '_' || currentChar === '$')
+			if(!jsc.TextUtils.isAscii(this.ch) || this.ch === '\\' || this.ch === '_' || this.ch === '$')
 				return this.nextToken(tok, inStrictMode);
-
-			this.ch = currentChar;
-			this.chCode = currentCharCode;
 		}
 
-		this.appendString(startOffset, this.position - startOffset);
+		this.appendString(begin, this.position - begin);
 
-		tok.column = this.columnNumber;
-		tok.begin = startOffset;
-		tok.beginLine = startLine;
-		tok.end = this.position;
-		tok.endLine = this.lineNumber;
 		tok.value = this.chBuffer.join("");
+		tok.begin = beginPosition;
+		tok.end = this.textPosition;
+		tok.location.line = this.state.lineNumber;
+		tok.location.lineBegin = this.state.lineBegin;
+		tok.location.begin = begin;
+		tok.location.end = this.position;
 
 		this.chBuffer = [];
 		this.state.lastTokenKind = jsc.Token.Kind.IDENTIFIER;
 
-		return this.state.lastTokenKind;
+		return jsc.Token.Kind.IDENTIFIER;
 	},
 
 	scanRegEx: function(patternPrefix) {
@@ -969,9 +1058,7 @@ jsc.Lexer = Object.define({
 	},
 
 	parseIdentifier: function(tok, inStrictMode) {
-		var remain = this.state.end - this.position;
-
-		if(remain >= jsc.Lexer.MAX_KEYWORD_LENGTH)
+		if(this.remainingCharCount >= jsc.Lexer.MAX_KEYWORD_LENGTH)
 		{
 			var keyword = this.parseKeyword(tok);
 
@@ -984,20 +1071,21 @@ jsc.Lexer = Object.define({
 			}
 		}
 
-		var identifierBeginIndex = this.position;
+		var identifierBegin = this.position;
+		var identifierBeginLine = this.lineBegin;
 
 		while(jsc.Lexer.isIdentifierPart(this.chCode))
 			this.next();
 
 		if(this.ch === '\\')
 		{
-			this.position = identifierBeginIndex;
+			this.resetPosition(identifierBegin, identifierBeginLine);
 			return this.parseIdentifierOrEscape(tok, inStrictMode);
 		}
 
-		tok.value = this.getString(identifierBeginIndex, this.position - identifierBeginIndex);
+		tok.value = this.getString(identifierBegin, this.position - identifierBegin);
 
-		if(remain < jsc.Lexer.MAX_KEYWORD_LENGTH)
+		if(this.remainingCharCount < jsc.Lexer.MAX_KEYWORD_LENGTH)
 		{
 			var identifierTokenKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
 
@@ -1011,8 +1099,7 @@ jsc.Lexer = Object.define({
 	},
 
 	parseIdentifierOrEscape: function(tok, inStrictMode) {
-		var remain = this.state.end - this.position;
-		var identifierBeginIndex = this.position;
+		var identifierBegin = this.position;
 		var identifierBeginChar = this.getChar();
 		var identifierBeginCharCode = this.getCharCode();
 		var useBuffer = false;
@@ -1034,7 +1121,7 @@ jsc.Lexer = Object.define({
 
 			if(identifierBeginCharCode !== this.getCharCode())
 			{
-				len = this.position - identifierBeginIndex;
+				len = this.position - identifierBegin;
 
 				for(i = 0; i < len; i++)
 					this.appendChar(identifierBeginChar);
@@ -1043,21 +1130,21 @@ jsc.Lexer = Object.define({
 			this.next();
 
 			if(this.ch !== 'u')
-				return jsc.Token.Kind.ERROR;
+				return (this.isEnd ? jsc.Token.Kind.ERROR_IDENTIFIER_ESCAPE_UNTERMINATED : jsc.Token.Kind.ERROR_IDENTIFIER_ESCAPE_INVALID);
 
 			this.next();
 
 			var unicodeCharCode = this.parseUnicodeHexCode();
 
-			if(unicodeCharCode === null)
-				return jsc.Token.Kind.ERROR;
+			if(unicodeCharCode === jsc.Lexer.ESCAPE_VALUE_INCOMPLETE || unicodeCharCode === jsc.Lexer.ESCAPE_VALUE_INVALID)
+				return (unicodeCharCode === jsc.Lexer.ESCAPE_VALUE_INCOMPLETE ? jsc.Token.Kind.ERROR_IDENTIFIER_UNICODE_ESCAPE_UNTERMINATED : jsc.Token.Kind.ERROR_IDENTIFIER_UNICODE_ESCAPE_INVALID);
 
 			if(this.chBuffer.length ? !jsc.Lexer.isIdentifierPart(unicodeCharCode) : !jsc.Lexer.isIdentifierBegin(unicodeCharCode))
-				return jsc.Token.Kind.ERROR;
+				return jsc.Token.Kind.ERROR_IDENTIFIER_UNICODE_ESCAPE_INVALID;
 
 			this.appendChar(String.fromCharCode(unicodeCharCode));
 
-			identifierBeginIndex = this.position;
+			identifierBegin = this.position;
 			identifierBeginChar = this.getChar();
 			identifierBeginCharCode = this.getCharCode();
 		}
@@ -1067,48 +1154,39 @@ jsc.Lexer = Object.define({
 
 		if(!useBuffer)
 		{
-			identifierLength = this.position - identifierBeginIndex;
+			identifierLength = this.position - identifierBegin;
 
-			for(i = identifierBeginIndex; i < identifierLength; i++)
+			for(i = identifierBegin; i < identifierLength; i++)
 				identifier += this.sourceBuffer.getChar(i);
 		}
 		else
 		{
 			if(identifierBeginCharCode !== this.getCharCode())
 			{
-				len = this.position - identifierBeginIndex;
+				len = this.position - identifierBegin;
 
 				for(i = 0; i < len; i++)
 					this.appendChar(identifierBeginChar);
 			}
 
 			identifier = this.chBuffer.join("");
-		}
 
-		tok.value = identifier;
-
-		if(!useBuffer)
-		{
-			if(remain < jsc.Lexer.MAX_KEYWORD_LENGTH)
-			{
-				var tokKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
-
-				if(tokKind === jsc.Token.Kind.UNKNOWN)
-					return jsc.Token.Kind.IDENTIFIER;
-
-				return (tokKind !== jsc.Token.Kind.RESERVED_STRICT || inStrictMode ? tokKind : jsc.Token.Kind.IDENTIFIER);
-			}
-
-			return jsc.Token.Kind.IDENTIFIER
 		}
 
 		this.chBuffer = [];
 
-		return jsc.Token.Kind.IDENTIFIER;
+		tok.value = identifier;
+
+		var tokKind = jsc.Lexer.getTokenKindFromIdentifier(tok.value);
+
+		if(tokKind === jsc.Token.Kind.UNKNOWN)
+			return jsc.Token.Kind.IDENTIFIER;
+
+		return (tokKind !== jsc.Token.Kind.RESERVED_STRICT || inStrictMode ? tokKind : jsc.Token.Kind.IDENTIFIER);
 	},
 
 	parseKeyword: function(tok) {
-		if((this.state.end - this.position) < jsc.Lexer.MAX_KEYWORD_LENGTH)
+		if(this.remainingCharCount < jsc.Lexer.MAX_KEYWORD_LENGTH)
 			this.throwOnError("Unable to parse keyword.");
 
 		var c = this.getChar();
@@ -1134,10 +1212,11 @@ jsc.Lexer = Object.define({
 
 	parseString: function(tok, inStrictMode) {
 		var quoteChar = this.ch;
+		var startOffset = 0;
 
 		this.next();
 
-		var startOffset = this.position;
+		startOffset = this.position;
 
 		while(this.ch !== quoteChar)
 		{
@@ -1164,7 +1243,11 @@ jsc.Lexer = Object.define({
 					if(!jsc.TextUtils.isHexDigit(this.ch) || !jsc.TextUtils.isHexDigit(this.peekChar(1)))
 					{
 						this.setError("\\x can only be followed by a hex character sequence.");
-						return false;
+
+						if(this.isEnd || (jsc.TextUtils.isHexDigit(this.ch) && (this.position + 1 === this.state.sourceEnd)))
+							return jsc.Token.Kind.ERROR_STRING_LITERAL_UNTERMINATED;
+
+						return jsc.Token.Kind.ERROR_STRING_LITERAL_INVALID;
 					}
 
 					this.appendChar(String.fromCharCode(parseInt(this.ch+this.peekChar(1), 16)));
@@ -1174,16 +1257,20 @@ jsc.Lexer = Object.define({
 				{
 					this.next();
 
-					var unicodeChar = this.parseUnicodeHex();
-
-					if(unicodeChar !== null)
-						this.appendChar(unicodeChar);
-					else if(this.ch === quoteChar)
+					if(this.ch === quoteChar)
 						this.appendChar('u');
 					else
 					{
-						this.setError("\\u can only be followed by a Unicode character sequence.");
-						return false;
+						var unicodeChar = this.parseUnicodeHex();
+
+						if(unicodeChar !== jsc.Lexer.ESCAPE_VALUE_INCOMPLETE && unicodeChar !== jsc.Lexer.ESCAPE_VALUE_INVALID)
+							this.appendChar(unicodeChar);
+						else
+						{
+							this.setError("\\u can only be followed by a Unicode character sequence.");
+
+							return (unicodeChar === jsc.Lexer.ESCAPE_VALUE_INCOMPLETE ? jsc.Token.Kind.ERROR_STRING_LITERAL_UNTERMINATED : jsc.Token.Kind.ERROR_STRING_LITERAL_INVALID);
+						}
 					}
 				}
 				else if(inStrictMode && jsc.TextUtils.isDigit(this.ch))
@@ -1195,7 +1282,7 @@ jsc.Lexer = Object.define({
 					if(prevChar !== '0' || jsc.TextUtils.isDigit(this.ch))
 					{
 						this.setError("The only valid numeric escape in strict mode is '\\0'.");
-						return false;
+						return jsc.Token.Kind.ERROR_STRING_LITERAL_INVALID;
 					}
 
 					this.appendChar('\0');
@@ -1223,7 +1310,7 @@ jsc.Lexer = Object.define({
 				else
 				{
 					this.setError("Unterminated string constant.");
-					return false;
+					return jsc.Token.Kind.ERROR_STRING_LITERAL_UNTERMINATED;
 				}
 
 				startOffset = this.position;
@@ -1233,7 +1320,7 @@ jsc.Lexer = Object.define({
 			if(this.isEnd || jsc.TextUtils.isLineTerminator(this.ch))
 			{
 				this.setError("Unexpected end of file.");
-				return false;
+				return (this.isEnd ? jsc.Token.Kind.ERROR_STRING_LITERAL_UNTERMINATED : jsc.Token.Kind.ERROR_STRING_LITERAL_INVALID);
 			}
 
 			this.next();
@@ -1245,7 +1332,7 @@ jsc.Lexer = Object.define({
 		tok.value = this.chBuffer.join("");
 		this.chBuffer = [];
 
-		return true;
+		return jsc.Token.Kind.STRING;
 	},
 
 	parseComment: function(tok) {
@@ -1271,7 +1358,14 @@ jsc.Lexer = Object.define({
 				commentValue += this.sourceBuffer.getChar(i);
 		}
 
-		this.comments.push(new jsc.Lexer.CommentInfo(commentValue, false, tok.begin, this.position, tok.beginLine, this.lineNumber, this.columnNumber));
+		var location = new jsc.TokenLocation();
+		location.begin = tok.location.begin;
+		location.line = this.lineNumber;
+		location.lineBegin = this.lineBegin;
+		location.end = this.position;
+
+		this.comments.push(
+			new jsc.Lexer.CommentInfo(commentValue, false, tok.begin, this.textPosition, location));
 
 		return result;
 	},
@@ -1301,7 +1395,14 @@ jsc.Lexer = Object.define({
 							commentValue += this.sourceBuffer.getChar(i);
 					}
 
-					this.comments.push(new jsc.Lexer.CommentInfo(commentValue, true, tok.begin, this.position, tok.beginLine, this.lineNumber, this.columnNumber));
+					var location = new jsc.TokenLocation();
+					location.begin = tok.location.begin;
+					location.line = this.lineNumber;
+					location.lineBegin = this.lineBegin;
+					location.end = this.position;
+
+					this.comments.push(
+						new jsc.Lexer.CommentInfo(commentValue, true, tok.begin, this.textPosition, location));
 					return true;
 				}
 			}
@@ -1324,6 +1425,7 @@ jsc.Lexer = Object.define({
 	},
 
 	parseDecimal: function(tok) {
+		// TODO: need to test and fix this
 		var decimalValue = 0;
 
 		if(!this.chBuffer.length)
@@ -1360,8 +1462,6 @@ jsc.Lexer = Object.define({
 	},
 
 	parseHex: function(tok) {
-		this.next();
-
 		while(jsc.TextUtils.isHexDigit(this.ch))
 		{
 			this.appendChar(this.ch);
@@ -1370,29 +1470,6 @@ jsc.Lexer = Object.define({
 
 		tok.value = parseInt(this.chBuffer.join(""), 16);
 		return true;
-	},
-
-	parseUnicodeHexCode: function() {
-		var a = this.ch;
-		var b = this.peekChar(1);
-		var c = this.peekChar(2);
-		var d = this.peekChar(3);
-
-		if(!jsc.TextUtils.isHexDigit(a) || !jsc.TextUtils.isHexDigit(b) || !jsc.TextUtils.isHexDigit(c) || !jsc.TextUtils.isHexDigit(d))
-			return null;
-
-		this.seek(4);
-
-		return parseInt(a+b+c+d, 16);
-	},
-
-	parseUnicodeHex: function() {
-		var code = this.parseUnicodeHexCode();
-
-		if(code === null)
-			return null;
-
-		return String.fromCharCode(code);
 	},
 
 	parseOctal: function(tok) {
@@ -1404,6 +1481,40 @@ jsc.Lexer = Object.define({
 
 		tok.value = parseInt(this.chBuffer.join(""), 8);
 		return true;
+	},
+
+	parseBinary: function(tok) {
+		while(jsc.TextUtils.isBinaryDigit(this.ch))
+		{
+			this.appendChar(this.ch);
+			this.next();
+		}
+
+		tok.value = parseInt(this.chBuffer.join(""), 2);
+		return true;
+	},
+
+	parseUnicodeHexCode: function() {
+		var a = this.ch;
+		var b = this.peekChar(1);
+		var c = this.peekChar(2);
+		var d = this.peekChar(3);
+
+		if(!jsc.TextUtils.isHexDigit(a) || !jsc.TextUtils.isHexDigit(b) || !jsc.TextUtils.isHexDigit(c) || !jsc.TextUtils.isHexDigit(d))
+			return ((this.position + 4 >= this.state.sourceEnd) ? jsc.Lexer.ESCAPE_VALUE_INCOMPLETE : jsc.Lexer.ESCAPE_VALUE_INVALID);
+
+		this.seek(4);
+
+		return parseInt(a+b+c+d, 16);
+	},
+
+	parseUnicodeHex: function() {
+		var code = this.parseUnicodeHexCode();
+
+		if(code < 0)
+			return code;
+
+		return String.fromCharCode(code);
 	},
 
 	parseNumberAfterDecimalPoint: function() {
@@ -1452,42 +1563,42 @@ jsc.Lexer = Object.define({
 	},
 
 	peekChar: function(offset) {
-		if((this.position+offset) < this.state.end)
+		if((this.position+offset) < this.state.sourceEnd)
 			return this.sourceBuffer.getChar(this.position+offset);
 
-		return null;
+		return '\0';
 	},
 
 	peekCharCode: function(offset) {
-		if((this.position+offset) < this.state.end)
+		if((this.position+offset) < this.state.sourceEnd)
 			return this.sourceBuffer.getCharCode(this.position+offset);
 
 		return 0;
 	},
 
 	seek: function(offset) {
-		this.state.position += offset;
+		this.state.sourcePosition += offset;
 		this.chLast = this.ch;
 		this.ch = this.getChar();
 		this.chCode = this.getCharCode();
 	},
 
 	getChar: function() {
-		if(this.position < this.state.end)
+		if(!this.isEnd)
 			return this.sourceBuffer.getChar(this.position);
 
 		return '\0';
 	},
 
 	getCharCode: function() {
-		if(this.position < this.state.end)
+		if(!this.isEnd)
 			return this.sourceBuffer.getCharCode(this.position);
 
 		return 0;
 	},
 
 	getString: function(offset, len) {
-		return this.sourceBuffer.toString(offset, len);
+		return this.sourceBuffer.getString(offset, len);
 	},
 
 	appendChar: function(ch) {
@@ -1497,6 +1608,11 @@ jsc.Lexer = Object.define({
 	appendString: function(index, length) {
 		for(var i = index; i < index+length; i++)
 			this.appendChar(this.sourceBuffer.getChar(i));
+	},
+
+	resetPosition: function(position, lineBegin) {
+		this.position = position;
+		this.lineBegin = lineBegin;
 	},
 
 	clear: function() {
@@ -1529,18 +1645,18 @@ jsc.Lexer = Object.define({
 });
 
 jsc.Lexer.CommentInfo = Object.define({
-	initialize: function(value, isMultiline, begin, end, beginLine, endLine, columnNumber) {
+	initialize: function(value, isMultiline, begin, end, location) {
 		this.value = value;
 		this.isMultiline = isMultiline;
-		this.begin = begin;
-		this.end = end;
-		this.beginLine = beginLine;
-		this.endLine = endLine;
-		this.columnNumber = columnNumber;
+		this.begin = begin.clone();
+		this.end = end.clone();
+		this.location = location.clone();
 	}
 });
 
 Object.extend(jsc.Lexer, {
+	ESCAPE_VALUE_INCOMPLETE: -2,
+	ESCAPE_VALUE_INVALID: -1,
 	MAX_KEYWORD_LENGTH: 11,
 
 	isIdentifierBegin: function(chCode) {
@@ -1560,6 +1676,13 @@ Object.extend(jsc.Lexer, {
 			return jsc.Token.Identifiers[id];
 
 		return jsc.Token.Kind.UNKNOWN;
+	},
+
+	getTokenKindForNumber: function(value) {
+		if(jsc.Utils.isInteger(value))
+			return jsc.Token.Kind.INTEGER;
+
+		return jsc.Token.Kind.DOUBLE;
 	}
 });
 
@@ -1835,7 +1958,7 @@ Object.extend(jsc.Lexer, {
 		/* 254 - Ll category        */ charKindEnum.IDENTIFIER_BEGIN,
 		/* 255 - Ll category        */ charKindEnum.IDENTIFIER_BEGIN
 	];
-})()
+})();
 
 
 module.exports = jsc.Lexer;

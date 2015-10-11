@@ -28,42 +28,55 @@ Object.extend(jsc.TextSpan, {
 
 
 jsc.TextPosition = Object.define({
-	initialize: function(line, offset, lineBeginOffset) {
-		this.line = line;
-		this.lineBeginOffset = lineBeginOffset;
-		this.offset = offset;
+	initialize: function(line, begin, lineBegin) {
+		this.line = jsc.Utils.valueOrDefault(line, 0);
+		this.lineBegin = jsc.Utils.valueOrDefault(lineBegin, 0);
+		this.begin = jsc.Utils.valueOrDefault(begin, 0);
 	},
 
 	get column() {
-		return (this.offset - this.lineBeginOffset);
+		return (this.begin - this.lineBegin);
 	},
 
 	add: function(offset) {
-		return new jsc.TextPosition(this.line, this.offset + offset, this.lineBeginOffset);
+		return new jsc.TextPosition(this.line, this.begin + offset, this.lineBegin);
 	},
 
 	subtract: function(offset) {
-		return new jsc.TextPosition(this.line, this.offset - offset, this.lineBeginOffset);
+		return new jsc.TextPosition(this.line, this.begin - offset, this.lineBegin);
 	},
 
 	isEqualTo: function(other) {
-		return (this.line === other.line && this.offset === other.offset && this.lineBeginOffset === other.lineBeginOffset);
+		return (this.line === other.line && this.begin === other.begin && this.lineBegin === other.lineBegin);
 	},
 
 	isGreaterThan: function(other) {
 		return (
-			(this.line >= other.line && this.offset > other.offset) ||
-			(this.offset >= other.offset && this.line > other.line));
+			(this.line >= other.line && this.begin > other.begin) ||
+			(this.begin >= other.begin && this.line > other.line));
 	},
 
 	isLessThan: function(other) {
 		return (
-			(this.line <= other.line && this.offset < other.offset) ||
-			(this.offset <= other.offset && this.line < other.line));
+			(this.line <= other.line && this.begin < other.begin) ||
+			(this.begin <= other.begin && this.line < other.line));
+	},
+
+	copyTo: function(other) {
+		other.line = this.line;
+		other.lineBegin = this.lineBegin;
+		other.begin = this.begin;
+	},
+
+	clone: function() {
+		var pos = new jsc.TextPosition();
+		this.copyTo(pos);
+
+		return pos;
 	},
 	
 	toString: function() {
-		return jsc.Utils.format("%d,%d", this.line, this.offset - this.lineBeginOffset);
+		return jsc.Utils.format("%d,%d", this.line, this.begin - this.lineBegin);
 	}
 });
 
@@ -143,6 +156,29 @@ jsc.TextBuffer = Object.define({
 	
 	get length() {
 		return this.source.length;
+	},
+
+	getString: function(offset, len) {
+		offset = jsc.Utils.valueOrDefault(offset, 0);
+		len = jsc.Utils.valueOrDefault(len, this.source.length);
+
+		if(this.encoding === jsc.TextBuffer.ENCODING.UTF8 || this.encoding === jsc.TextBuffer.ENCODING.UTF16)
+		{
+			var s = "";
+
+			for(var ch, i = 0; i < len; i += this.getCharLength(ch))
+			{
+				ch = this.getCharCode(i+offset);
+				s += String.fromCharCode(ch);
+			}
+
+			return s;
+		}
+
+		if(offset === 0 && len === this.source.length)
+			return String.fromCharCode.apply(null, this.source);
+
+		return String.fromCharCode.apply(null, this.source.subarray(offset, offset+len));
 	},
 	
 	getCharLength: function(ch) {
@@ -270,27 +306,8 @@ jsc.TextBuffer = Object.define({
 		return this.toString();
 	},
 	
-	toString: function(offset, len) {
-		offset = jsc.Utils.valueOrDefault(offset, 0);
-		len = jsc.Utils.valueOrDefault(len, this.source.length);
-		
-		if(this.encoding === jsc.TextBuffer.ENCODING.UTF8 || this.encoding === jsc.TextBuffer.ENCODING.UTF16)
-		{
-			var s = "";
-			
-			for(var ch, i = 0; i < len; i += this.getCharLength(ch))
-			{
-				ch = this.getCharCode(i+offset);
-				s += String.fromCharCode(ch);
-			}
-
-			return s;
-		}
-		
-		if(offset === 0 && len === this.source.length)
-			return String.fromCharCode.apply(null, this.source);
-
-		return String.fromCharCode.apply(null, this.source.subarray(offset, offset+len));
+	toString: function() {
+		return this.getString();
 	}
 });
 
@@ -331,6 +348,10 @@ jsc.TextUtils = {
 	
 	isOctalDigit: function(ch) {
 		return (ch >= '\u0030' && ch <= '\u0037');
+	},
+
+	isBinaryDigit: function(ch) {
+		return (ch === '0' || ch === '1');
 	},
 	
 	isAscii: function(ch) {
