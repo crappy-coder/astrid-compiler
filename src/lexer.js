@@ -183,7 +183,6 @@ jsc.Lexer = Object.define({
 		var hasError = false;
 		var inSingleLineComment = false;
 		var inNumber = false;
-		var validateNumericLiteral = false;
 
 		loop:
 			while(true)
@@ -439,7 +438,7 @@ jsc.Lexer = Object.define({
 						}
 
 						// '*'
-						tokKind = jsc.Token.Kind.MULT;
+						tokKind = jsc.Token.Kind.TIMES;
 						break loop;
 					}
 					case jsc.Lexer.CharacterKind.AND:

@@ -175,6 +175,15 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.SwitchClauseListNode(expression, statements, tail);
 	},
 
+	createClassDeclarationStatement: function(location, beginLine, endLine, classExpression) {
+		var assignExpr = this.createAssignResolveExpression(location, classExpression.name, classExpression, false);
+		var classDecl = new jsc.AST.ClassDeclarationStatement(location, assignExpr);
+
+		classDecl.updatePosition(beginLine, endLine, location.begin, location.lineBegin);
+
+		return classDecl;
+	},
+
 	createFunctionDeclarationStatement: function(location, info) {
 		var statement = new jsc.AST.FunctionDeclarationStatement(location, info.name, info.body, this.source.toSourceCode(info.begin, info.end, info.beginLine, info.bodyBeginColumn));
 		info.body.updatePosition(info.beginLine, info.endLine, location.begin, location.lineBegin);
@@ -186,8 +195,26 @@ jsc.AST.Context = Object.define({
 
 		return statement;
 	},
-		
 
+	createImportDeclarationStatement: function(location, specifierList, moduleName) {
+		return new jsc.AST.ImportDeclarationStatement(location, specifierList, moduleName);
+	},
+
+	createExportAllDeclarationStatement: function(location, moduleName) {
+		return new jsc.AST.ExportAllDeclarationStatement(location, moduleName);
+	},
+
+	createExportDefaultDeclarationStatement: function(location, statement, localName) {
+		return new jsc.AST.ExportDefaultDeclarationStatement(location, statement, localName);
+	},
+
+	createExportLocalDeclarationStatement: function(location, statement) {
+		return new jsc.AST.ExportLocalDeclarationStatement(location, statement);
+	},
+
+	createExportNamedDeclarationStatement: function(location, specifierList, moduleName) {
+		return new jsc.AST.ExportNamedDeclarationStatement(location, specifierList, moduleName);
+	},
 
 	//=============================================================================================
 	// CREATE EXPRESSIONS
@@ -346,6 +373,10 @@ jsc.AST.Context = Object.define({
 
 	createSuperExpression: function(location) {
 		return new jsc.AST.SuperExpression(location);
+	},
+
+	createClassExpression: function(location, name, constructorExpression, parentClassExpression, instanceMethods, staticMethods) {
+		return new jsc.AST.ClassExpression(location, name, constructorExpression, parentClassExpression, instanceMethods, staticMethods);
 	},
 
 	createNewExpression: function(location, expression) {
@@ -567,7 +598,7 @@ jsc.AST.Context = Object.define({
 			case jsc.Token.Kind.DIV:
 				return this.createDivideExpression(location, lhsExpr, rhsExpr, rhsHasAssignment);
 
-			case jsc.Token.Kind.MULT:
+			case jsc.Token.Kind.TIMES:
 				return this.createMultiplyExpression(location, lhsExpr, rhsExpr, rhsHasAssignment);
 
 			case jsc.Token.Kind.MINUS:
@@ -632,17 +663,37 @@ jsc.AST.Context = Object.define({
 		return new jsc.AST.FunctionParameterList();
 	},
 
-	createFunctionMetadata: function(beginLocation, endLocation, beginColumn, endColumn, keywordBegin, nameBegin, parametersBegin, parameterCount, inStrictMode, isArrowFunction, isArrowFunctionExpression) {
-		var metadata = new jsc.AST.FunctionMetadataNode(beginLocation, endLocation, beginColumn, endColumn, inStrictMode);
+	createFunctionMetadata: function(beginLocation, endLocation, beginColumn, endColumn, keywordBegin, nameBegin, parametersBegin, parameters, statements, inStrictMode, isArrowFunction, isArrowFunctionExpression) {
+		var metadata = new jsc.AST.FunctionMetadataNode(beginLocation, endLocation, beginColumn, endColumn, statements, inStrictMode);
 
 		metadata.nameBegin = nameBegin;
 		metadata.keywordBegin = keywordBegin;
 		metadata.parametersBegin = parametersBegin;
-		metadata.parameterCount = parameterCount;
+		metadata.parameters = parameters;
 		metadata.isArrowFunction = isArrowFunction;
 		metadata.isArrowFunctionBodyExpression = isArrowFunctionExpression;
 
 		return metadata;
+	},
+
+	createModuleName: function(location, name) {
+		return new jsc.AST.ModuleNameNode(location, name);
+	},
+
+	createImportSpecifierList: function() {
+		return new jsc.AST.ImportSpecifierList();
+	},
+
+	createImportSpecifier: function(location, importedKind, importedName, localName) {
+		return new jsc.AST.ImportSpecifierNode(location, importedKind, importedName, localName);
+	},
+
+	createExportSpecifierList: function() {
+		return new jsc.AST.ExportSpecifierList();
+	},
+
+	createExportSpecifier: function(location, exportedName, localName) {
+		return new jsc.AST.ExportSpecifierNode(location, exportedName, localName);
 	},
 
 	createArgumentsList: function(location, expression, list) {
@@ -987,6 +1038,20 @@ jsc.AST.EmptyDeclarationExpression = Object.define(jsc.AST.Expression, {
 
 		this.name = name;
 		this.declarationKind = declarationKind;
+	}
+});
+
+
+/** @class */
+jsc.AST.ClassExpression = Object.define(jsc.AST.Expression, {
+	initialize: function($super, location, name, constructorExpression, parentClass, instanceMethods, staticMethods) {
+		$super(jsc.AST.NodeKind.CLASS, location);
+
+		this.name = name;
+		this.constructorExpression = constructorExpression;
+		this.parentClass = parentClass;
+		this.instanceMethods = instanceMethods;
+		this.staticMethods = staticMethods;
 	}
 });
 
@@ -1882,7 +1947,7 @@ jsc.AST.SpreadExpression = Object.define(jsc.AST.Expression, {
 /** @class */
 jsc.AST.DestructuringAssignmentExpression = Object.define(jsc.AST.Expression, {
 	initialize: function($super, location, bindingPattern, initializeExpression) {
-		$super(jsc.AST.NodeKind.EMPTY_DECL, location);
+		$super(jsc.AST.NodeKind.DS_ASSIGN, location);
 
 		this.bindingPattern = bindingPattern;
 		this.initializeExpression = initializeExpression;
@@ -2147,12 +2212,75 @@ jsc.AST.ForStatement = Object.define(jsc.AST.Statement, {
 
 
 /** @class */
+jsc.AST.ClassDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, classExpression) {
+		$super(jsc.AST.NodeKind.CLASS_DECL, location);
+
+		this.classDeclaration = classExpression;
+	}
+});
+
+
+/** @class */
 jsc.AST.FunctionDeclarationStatement = Object.define(jsc.AST.Statement, {
 	initialize: function($super, location, name, body, source) {
 		$super(jsc.AST.NodeKind.FUNCTION_DECL, location);
 
 		this.metadata = body;
 		this.metadata.finalize(source, name, jsc.AST.FunctionMode.DECLARATION);
+	}
+});
+
+
+/** @class */
+jsc.AST.ImportDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, list, moduleName) {
+		$super(jsc.AST.NodeKind.IMPORT_DECL, location);
+
+		this.list = list;
+		this.moduleName = moduleName;
+	}
+});
+
+
+/** @class */
+jsc.AST.ExportAllDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, moduleName) {
+		$super(jsc.AST.NodeKind.EXPORT_ALL_DECL, location);
+
+		this.moduleName = moduleName;
+	}
+});
+
+
+/** @class */
+jsc.AST.ExportDefaultDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, statement, localName) {
+		$super(jsc.AST.NodeKind.EXPORT_DEFAULT_DECL, location);
+
+		this.statement = statement;
+		this.localName = localName;
+	}
+});
+
+
+/** @class */
+jsc.AST.ExportLocalDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, statement) {
+		$super(jsc.AST.NodeKind.EXPORT_LOCAL_DECL, location);
+
+		this.statement = statement;
+	}
+});
+
+
+/** @class */
+jsc.AST.ExportNamedDeclarationStatement = Object.define(jsc.AST.Statement, {
+	initialize: function($super, location, list, moduleName) {
+		$super(jsc.AST.NodeKind.EXPORT_NAMED_DECL, location);
+
+		this.list = list;
+		this.moduleName = moduleName;
 	}
 });
 
@@ -2287,6 +2415,14 @@ jsc.AST.FunctionParameterList = Object.define({
 		this.hasDefaultParameterValues = false;
 	},
 
+	get count() {
+		return this.parameters.length;
+	},
+
+	getAt: function(index) {
+		return this.parameters[index];
+	},
+
 	append: function(kind, patternNode, defaultValue) {
 		this.parameters.push(new jsc.AST.FunctionParameterNode(kind, patternNode, defaultValue));
 
@@ -2302,7 +2438,7 @@ jsc.AST.FunctionParameterList = Object.define({
  * @class
  */
 jsc.AST.FunctionMetadataNode = Object.define(jsc.AST.Node, {
-	initialize: function($super, beginLocation, endLocation, beginColumn, endColumn, inStrictMode) {
+	initialize: function($super, beginLocation, endLocation, beginColumn, endColumn, statements, inStrictMode) {
 		$super(jsc.AST.NodeKind.FUNCTION_METADATA, endLocation);
 
 		this.name = null;
@@ -2313,12 +2449,21 @@ jsc.AST.FunctionMetadataNode = Object.define(jsc.AST.Node, {
 		this.inStrictMode = inStrictMode;
 		this.keywordBegin = 0;
 		this.parametersBegin = 0;
-		this.parameterCount = 0;
+		this.parameters = [];
 		this.isArrowFunction = false;
 		this.isArrowFunctionBodyExpression = false;
 		this.mode = jsc.AST.FunctionMode.DECLARATION;
 		this.source = null;
+		this.statements = statements;
 		this.state.inferredName = null;
+	},
+
+	get isEmptyBody() {
+		return (jsc.Utils.isNull(this.statements) || this.statements.length === 0);
+	},
+
+	get hasParameters() {
+		return (jsc.Utils.isNotNull(this.parameters) && this.parameters.count > 0);
 	},
 
 	get inferredName() {
@@ -2333,6 +2478,91 @@ jsc.AST.FunctionMetadataNode = Object.define(jsc.AST.Node, {
 		this.source = source;
 		this.name = name;
 		this.mode = mode;
+	}
+});
+
+
+/**
+ * Represents a module name.
+ *
+ * @class
+ */
+jsc.AST.ModuleNameNode = Object.define(jsc.AST.Node, {
+	initialize: function($super, location, name) {
+		$super(jsc.AST.NodeKind.MODULE_NAME, location);
+
+		this.name = name;
+	}
+});
+
+
+/**
+ * Represents a list of import specifiers.
+ *
+ * @class
+ */
+jsc.AST.ImportSpecifierList = Object.define({
+	initialize: function() {
+		this.specifiers = [];
+	},
+
+	get count() {
+		return this.specifiers.length;
+	},
+
+	append: function(specifier) {
+		this.specifiers.push(specifier);
+	}
+});
+
+
+/**
+ * Represents an import specifier.
+ *
+ * @class
+ */
+jsc.AST.ImportSpecifierNode = Object.define(jsc.AST.Node, {
+	initialize: function($super, location, importedKind, importedName, localName) {
+		$super(jsc.AST.NodeKind.IMPORT_SPECIFIER, location);
+
+		this.importedKind = importedKind;
+		this.importedName = importedName;
+		this.localName = localName;
+	}
+});
+
+
+/**
+ * Represents a list of export specifiers.
+ *
+ * @class
+ */
+jsc.AST.ExportSpecifierList = Object.define({
+	initialize: function() {
+		this.specifiers = [];
+	},
+
+	get count() {
+		return this.specifiers.length;
+	},
+
+	append: function(specifier) {
+		this.specifiers.push(specifier);
+	}
+});
+
+
+/**
+ * Represents an export specifier.
+ *
+ * @class
+ */
+jsc.AST.ExportSpecifierNode = Object.define(jsc.AST.Node, {
+	initialize: function($super, location, exportedName, localName) {
+		$super(jsc.AST.NodeKind.EXPORT_SPECIFIER, location);
+
+		this.exportedName = exportedName;
+		this.localName = localName;
 	}
 });
 
@@ -2739,6 +2969,14 @@ jsc.AST.AssignmentContextKind = {
 
 
 /** @enum */
+jsc.AST.ImportSpecifierKind = {
+	DEFAULT: 0,
+	NAMED: 1,
+	NAMESPACE: 2
+};
+
+
+/** @enum */
 jsc.AST.FunctionMode = {
 	EXPRESSION: 0,
 	DECLARATION: 1
@@ -2788,6 +3026,7 @@ jsc.AST.VariableFlags = {
 
 /** @enum */
 jsc.AST.Keyword = {
+	AS: 		"as",
 	BREAK: 		"break",
 	CASE: 		"case",
 	CATCH: 		"catch",
@@ -2806,6 +3045,7 @@ jsc.AST.Keyword = {
 	FALSE: 		"false",
 	FINALLY: 	"finally",
 	FOR: 		"for",
+	FROM: 		"from",
 	FUNCTION: 	"function",
 	GET:		"get",
 	IF: 		"if",
@@ -2862,7 +3102,6 @@ jsc.AST.NodeKind = {
 	BREAK:					 17,
 	COMMA:					 18,
 	CONDITIONAL:			 19,
-	CONST_DECL:				 20,
 	CONTINUE:				 21,
 	DEBUGGER:				 22,
 	DECL_STATEMENT:			 23,
@@ -2882,7 +3121,6 @@ jsc.AST.NodeKind = {
 	EXPR_STATEMENT:			 37,
 	FOR:					 38,
 	FOR_IN:					 39,
-	FUNCTION:				 40,
 	FUNCTION_APPLY:			 41,
 	FUNCTION_CALL:			 42,
 	FUNCTION_DECL:			 43,
@@ -2944,7 +3182,17 @@ jsc.AST.NodeKind = {
 	FOR_OF:					107,
 	FUNCTION_METADATA:		108,
 	NEW_TARGET:				109,
-	PARAMETER_PATTERN:		110
+	PARAMETER_PATTERN:		110,
+	IMPORT_SPECIFIER:		111,
+	IMPORT_DECL:			112,
+	EXPORT_SPECIFIER:		113,
+	EXPORT_ALL_DECL:		114,
+	EXPORT_DEFAULT_DECL:	115,
+	EXPORT_LOCAL_DECL:		116,
+	EXPORT_NAMED_DECL:		117,
+	MODULE_NAME:			118,
+	CLASS:					119,
+	CLASS_DECL:				120
 };
 
 

@@ -114,10 +114,6 @@ jsc.Writers.Writer = Object.define({
 				this.writeConditionalExpression(astNode);
 				break;
 
-			case jsc.AST.NodeKind.CONST_DECL:
-				this.writeConstantDeclarationExpression(astNode);
-				break;
-
 			case jsc.AST.NodeKind.DECL_STATEMENT:
 				this.writeDeclarationStatement(astNode);
 				break;
@@ -158,6 +154,10 @@ jsc.Writers.Writer = Object.define({
 				this.writeEmptyStatement(astNode);
 				break;
 
+			case jsc.AST.NodeKind.EMPTY_DECL:
+				this.writeEmptyDeclarationExpression(astNode);
+				break;
+
 			case jsc.AST.NodeKind.EVAL:
 				this.writeEvalStatement(astNode);
 				break;
@@ -174,8 +174,8 @@ jsc.Writers.Writer = Object.define({
 				this.writeForInStatement(astNode);
 				break;
 
-			case jsc.AST.NodeKind.FUNCTION:
-				this.writeFunctionNode(astNode);
+			case jsc.AST.NodeKind.FUNCTION_METADATA:
+				this.writeFunctionMetadata(astNode);
 				break;
 
 			case jsc.AST.NodeKind.FUNCTION_APPLY:
@@ -246,44 +246,16 @@ jsc.Writers.Writer = Object.define({
 				this.writeNullExpression(astNode);
 				break;
 
-			case jsc.AST.NodeKind.NUMBER:
-				this.writeNumberExpression(astNode);
+			case jsc.AST.NodeKind.INTEGER:
+				this.writeIntegerExpression(astNode);
+				break;
+
+			case jsc.AST.NodeKind.DOUBLE:
+				this.writeDoubleExpression(astNode);
 				break;
 
 			case jsc.AST.NodeKind.OBJECT_LITERAL:
 				this.writeObjectLiteralExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.POSTFIX_BRACKET:
-				this.writePostfixBracketExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.POSTFIX_DOT:
-				this.writePostfixDotExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.POSTFIX_ERROR:
-				this.writePostfixErrorExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.POSTFIX_RESOLVE:
-				this.writePostfixResolveExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.PREFIX_BRACKET:
-				this.writePrefixBracketExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.PREFIX_DOT:
-				this.writePrefixDotExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.PREFIX_ERROR:
-				this.writePrefixErrorExpression(astNode);
-				break;
-
-			case jsc.AST.NodeKind.PREFIX_RESOLVE:
-				this.writePrefixResolveExpression(astNode);
 				break;
 
 			case jsc.AST.NodeKind.PROPERTY_LIST:
@@ -361,6 +333,39 @@ jsc.Writers.Writer = Object.define({
 			case jsc.AST.NodeKind.WITH:
 				this.writeWithStatement(astNode);
 				break;
+
+			case jsc.AST.NodeKind.IMPORT_DECL:
+				this.writeImportStatement(astNode);
+				break;
+
+			case jsc.AST.NodeKind.IMPORT_SPECIFIER:
+				this.writeImportSpecifier(astNode);
+				break;
+
+			case jsc.AST.NodeKind.EXPORT_ALL_DECL:
+				this.writeExportAllStatement(astNode);
+				break;
+
+			case jsc.AST.NodeKind.EXPORT_DEFAULT_DECL:
+				this.writeExportDefaultStatement(astNode);
+				break;
+
+			case jsc.AST.NodeKind.EXPORT_LOCAL_DECL
+				this.writeExportLocalStatement(astNode);
+				break;
+
+			case jsc.AST.NodeKind.EXPORT_NAMED_DECL:
+				this.writeExportNamedStatement(astNode);
+				break;
+
+			case jsc.AST.NodeKind.EXPORT_SPECIFIER:
+				this.writeExportSpecifier(astNode);
+				break;
+
+			case jsc.AST.NodeKind.MODULE_NAME:
+				this.writeModuleName(astNode);
+				break;
+
 			default:
 				console.log("-------------- NOT IMPLEMENTED --------------");
 				this.printNode(astNode);
@@ -375,6 +380,143 @@ jsc.Writers.Writer = Object.define({
 
 		if(astNode.isExpression)
 			this.state.lastExpression = astNode;
+	},
+
+	writeImportStatement: function(node) {
+		this.writeKeyword(jsc.AST.Keyword.IMPORT);
+		this.writeSpace();
+
+		if(node.list.count > 0)
+		{
+			// need to group the imports so they are written in the correct order.
+			//   1. Default
+			//   2. Namespace
+			//   3. Named
+			//
+
+			var allImports = node.list.specifiers;
+			var defaultImports = [];
+			var namespaceImports = [];
+			var namedImports = [];
+			var writeCount = 0;
+
+			allImports.forEach(function(importSpec) {
+				switch(importSpec.importedKind)
+				{
+					case jsc.AST.ImportSpecifierKind.DEFAULT:
+						defaultImports.push(importSpec);
+						break;
+					case jsc.AST.ImportSpecifierKind.NAMESPACE:
+						namespaceImports.push(importSpec);
+						break;
+					case jsc.AST.ImportSpecifierKind.NAMED:
+					default:
+						namedImports.push(importSpec);
+						break;
+				}
+			});
+
+			// FIXME: there should only be one default, need to validate and throw if there are more than one.
+			// 1. Defaults
+			//
+			defaultImports.forEach(function(importSpec) {
+				if(writeCount !== 0)
+				{
+					this.write(',');
+					this.writeSpace();
+				}
+
+				this.writeNode(importSpec);
+				writeCount++;
+			}, this);
+
+
+			// 2. Namespace
+			//
+			namespaceImports.forEach(function(importSpec, index) {
+				if(writeCount !== 0)
+				{
+					this.write(',');
+					this.writeSpace();
+				}
+
+				this.writeNode(importSpec);
+				writeCount++;
+			}, this);
+
+
+			// 3. Named
+			//
+			if(namedImports.length > 0)
+			{
+				if(writeCount !== 0)
+				{
+					this.write(',');
+					this.writeSpace();
+				}
+
+				this.write('{');
+				this.writeSpace();
+
+				namedImports.forEach(function(importSpec, index) {
+					if(index !== 0)
+					{
+						this.write(',');
+						this.writeSpace();
+					}
+
+					this.writeNode(importSpec);
+					writeCount++;
+				}, this);
+
+				this.writeSpace();
+				this.write('}');
+			}
+
+			this.writeSpace();
+			this.writeKeyword(jsc.AST.Keyword.FROM);
+			this.writeSpace();
+		}
+
+		this.writeNode(node.moduleName);
+		this.writeSemicolon();
+	},
+
+	writeImportSpecifier: function(node) {
+		if(node.importedKind === jsc.AST.ImportSpecifierKind.DEFAULT || node.importedName === node.localName)
+			this.write(node.localName);
+		else
+		{
+			this.write(node.importedName);
+			this.writeSpace();
+			this.writeKeyword(jsc.AST.Keyword.AS);
+			this.writeSpace();
+			this.write(node.localName);
+		}
+	},
+
+	writeExportAllStatement: function(node) {
+
+	},
+
+	writeExportDefaultStatement: function(node) {
+
+	},
+
+	writeExportLocalStatement: function(node) {
+
+	},
+
+	writeExportNamedStatement: function(node) {
+
+	},
+
+	writeExportSpecifier: function(node) {
+
+	},
+
+	writeModuleName: function(node) {
+		this.writeString(node.name);
 	},
 
 	writeArgumentListNode: function(node) {
@@ -610,6 +752,10 @@ jsc.Writers.Writer = Object.define({
 			!this.isLastNodeOfKind(jsc.AST.NodeKind.EMPTY));
 	},
 
+	writeEmptyDeclarationExpression: function(node) {
+		this.write(node.name);
+	},
+
 	writeEvalStatement: function(node) {
 		void(node);
 
@@ -684,8 +830,11 @@ jsc.Writers.Writer = Object.define({
 		this.writeBlock(node.statement);
 	},
 
-	writeFunctionNode: function(node, isGetterOrSetter) {
+	writeFunctionMetadata: function(node, isGetterOrSetter) {
 		isGetterOrSetter = jsc.Utils.valueOrDefault(isGetterOrSetter, false);
+
+		if(node.isArrowFunction)
+			throw new Error("Arrow functions are not yet supported.");
 
 		if(!isGetterOrSetter)
 		{
@@ -699,7 +848,10 @@ jsc.Writers.Writer = Object.define({
 		}
 
 		this.write('(');
-		this.writeList(node.parameterNames);
+
+		if(node.hasParameters)
+			this.writeFunctionParameters(node.parameters);
+
 		this.write(')');
 
 		this.writeSpace();
@@ -711,6 +863,27 @@ jsc.Writers.Writer = Object.define({
 		this.popIndent();
 
 		this.write('}');
+	},
+
+	writeFunctionParameters: function(node) {
+		var params = [];
+
+		for(var i = 0; i < node.parameters.length; ++i)
+		{
+			var p = node.parameters[i];
+			var name = p.pattern.boundName;
+
+			if(p.kind === jsc.AST.FunctionParameterKind.REST)
+				name = "..." + name;
+
+			params.push(name);
+			params.push(', ');
+		}
+
+		if(params.length > 1)
+			params.length -= 1;
+
+		this.write(params.join(''));
 	},
 
 	writeApplyDotFunctionCallExpression: function(node) {
@@ -725,11 +898,12 @@ jsc.Writers.Writer = Object.define({
 
 	writeFunctionDeclarationStatement: function(node) {
 		this.writeLine();
-		this.writeNode(node.functionNode);
+		this.writeNode(node.metadata);
+		this.writeNewLine();
 	},
 
 	writeFunctionExpression: function(node) {
-		this.writeNode(node.functionNode);
+		this.writeNode(node.metadata);
 	},
 
 	writeBracketFunctionCallExpression: function(node) {
@@ -822,7 +996,11 @@ jsc.Writers.Writer = Object.define({
 		this.writeKeyword(jsc.AST.Keyword.NULL);
 	},
 
-	writeNumberExpression: function(node) {
+	writeIntegerExpression: function(node) {
+		this.write(node.value);
+	},
+
+	writeDoubleExpression: function(node) {
 		this.write(node.value);
 	},
 
@@ -895,7 +1073,7 @@ jsc.Writers.Writer = Object.define({
 			this.writeKeyword(node.isGetter ? jsc.AST.Keyword.GET : jsc.AST.Keyword.SET);
 			this.writeSpace();
 			this.write(node.name);
-			this.writeFunctionNode(node.expression.functionNode, true);
+			this.writeFunctionMetadata(node.expression.metadata, true);
 		}
 		else
 		{

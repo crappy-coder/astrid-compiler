@@ -4,4 +4,4 @@ function theFunc1(a) {
 
 const theConst1 = 1;
 
-export theFunc1, theConst1;
+export { theFunc1, theConst1 }

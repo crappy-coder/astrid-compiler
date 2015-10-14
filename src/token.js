@@ -234,7 +234,7 @@ Object.extend(jsc.Token, {
 		URSHIFT					: [17 + ( 8 << precedence) | ( 8 << precedence_shift)           ,             ">>>"],
 		PLUS					: [18 + ( 9 << precedence) | ( 9 << precedence_shift) | unary   ,               "+"],
 		MINUS					: [19 + ( 9 << precedence) | ( 9 << precedence_shift) | unary   ,               "-"],
-		MULT					: [20 + (10 << precedence) | (10 << precedence_shift)           ,               "*"],
+		TIMES					: [20 + (10 << precedence) | (10 << precedence_shift)           ,               "*"],
 		DIV						: [21 + (10 << precedence) | (10 << precedence_shift)           ,               "/"],
 		MOD						: [22 + (10 << precedence) | (10 << precedence_shift)           ,               "%"],
 

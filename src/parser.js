@@ -100,7 +100,7 @@ jsc.Parser = Object.define({
 	},
 	
 	get tokenEnd() {
-		return this.tok.begin.begin;
+		return this.tok.end.begin;
 	},
 
 	get tokenEndPosition() {
@@ -362,6 +362,25 @@ jsc.Parser = Object.define({
 		}
 		
 		this.failWhenError();
+
+		var scope = this.currentScope;
+		var keys = scope.moduleExportedBindings.keys;
+
+		keys.forEach(function(k) {
+			if(scope.hasDeclaredVariable(k))
+			{
+				scope.declaredVariables.setIsExported(k);
+				return;
+			}
+			else if(scope.hasDeclaredLexicalVariable(k))
+			{
+				scope.lexicalVariables.setIsExported(k);
+				return;
+			}
+
+			this.fail("Exported binding '" + k + "' needs to refer to a top-level declared variable.");
+		}, this);
+
 		return statements;
 	},
 
@@ -373,9 +392,9 @@ jsc.Parser = Object.define({
 			var statement = null;
 
 			if(this.match(jsc.Token.Kind.IMPORT))
-				statement = this.parseImportStatment(context);
+				statement = this.parseImportDeclaration(context);
 			else if(this.match(jsc.Token.Kind.EXPORT))
-				statement = this.parseExportStatement(context);
+				statement = this.parseExportDeclaration(context);
 			else
 				statement = this.parseStatementListItem(context);
 
@@ -447,7 +466,13 @@ jsc.Parser = Object.define({
 					break;
 				}
 				case jsc.Token.Kind.CLASS:
-					statement = this.parseClassStatement(context);
+					statement = this.parseClassDeclaration(context);
+					break;
+				case jsc.Token.Kind.IMPORT:
+					statement = this.parseImportDeclaration(context);
+					break;
+				case jsc.Token.Kind.EXPORT:
+					statement = this.parseExportDeclaration(context);
 					break;
 				default:
 					this.state.statementDepth--;
@@ -590,30 +615,627 @@ jsc.Parser = Object.define({
 		return statement;
 	},
 
-	parseImportStatment: function(context) {
-		// TODO: IMPLEMENT
-		throw new Error("NOT IMPLEMENTED");
+	parseImportDeclaration: function(context) {
+		var location = this.tokenLocation;
+		var specifier = null;
+		var specifierList = context.createImportSpecifierList();
+		var moduleName = null;
+		var isDoneParsing = false;
+
+		this.matchOrFail(jsc.Token.Kind.IMPORT);
+		this.next();
+
+		if(this.match(jsc.Token.Kind.STRING))
+		{
+			// import ModuleSpecifier ;
+			//
+			moduleName = this.parseModuleName(context);
+
+			this.failWhenNull(moduleName, "Cannot parse the module name.");
+			this.failWhenFalse(this.insertSemicolon(), "Expected a ';' following a targeted import declaration.");
+
+			return context.createImportDeclarationStatement(location, specifierList, moduleName);
+		}
+
+		if(this.match(jsc.Token.Kind.IDENTIFIER))
+		{
+			// ImportedDefaultBinding :
+			// ImportedBinding
+			//
+			specifier = this.parseImportSpecifier(context, jsc.Parser.ImportSpecifierKind.DEFAULT);
+			this.failWhenNull(specifier, "Cannot parse the default import.");
+
+			specifierList.append(specifier);
+
+			// parsing is complete if there is no comma
+			if(!this.match(jsc.Token.Kind.COMMA))
+				isDoneParsing = true;
+			else
+				this.next();
+		}
+
+		if(!isDoneParsing)
+		{
+			if(this.match(jsc.Token.Kind.TIMES))
+			{
+				// import NamespaceImport FromClase ;
+				specifier = this.parseImportSpecifier(context, jsc.Parser.ImportSpecifierKind.NAMESPACE);
+				this.failWhenNull(specifier, "Cannot parse the namespace import.");
+
+				specifierList.append(specifier);
+			}
+			else if(this.match(jsc.Token.Kind.OPEN_BRACE))
+			{
+				// NamedImports :
+				// { }
+				// { ImportsList }
+				// { ImportsList , }
+				//
+				this.next();
+
+				while(!this.match(jsc.Token.Kind.CLOSE_BRACE))
+				{
+					this.failWhenFalse(this.matchIdentifierOrKeyword(), "Expected an imported name for the import declaration.");
+
+					specifier = this.parseImportSpecifier(context, jsc.Parser.ImportSpecifierKind.NAMED);
+					this.failWhenNull(specifier, "Cannot parse the named import.");
+
+					specifierList.append(specifier);
+
+					if(!this.consume(jsc.Token.Kind.COMMA))
+						break;
+				}
+
+				this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
+			}
+			else
+				this.fail("Expected a namespace import or an import list.");
+		}
+
+		// FromClause :
+		// from ModuleSpecifier
+		//
+
+		this.failWhenFalse(this.matchKeyword(jsc.Parser.KnownIdentifiers.From), "Expected a 'from' before the imported module name.");
+		this.next();
+
+		moduleName = this.parseModuleName(context);
+		this.failWhenNull(moduleName, "Cannot parse the module name.");
+		this.failWhenFalse(this.insertSemicolon(), "Expected a ';' following a targeted import declaration.");
+
+		return context.createImportDeclarationStatement(location, specifierList, moduleName);
 	},
 
-	parseExportStatement: function(context) {
-		// TODO: IMPLEMENT
-		throw new Error("NOT IMPLEMENTED");
+	parseImportSpecifier: function(context, specifierKind) {
+		var location = this.tokenLocation;
+		var importedName = null;
+		var importedKind = 0;
+		var localName = null;
+		var localNameTokenKind = null;
+		var declResult = 0;
+
+		switch(specifierKind)
+		{
+			case jsc.Parser.ImportSpecifierKind.DEFAULT:
+			{
+				// ImportedDefaultBinding :
+				// ImportedBinding
+				//
+				this.matchOrFail(jsc.Token.Kind.IDENTIFIER);
+
+				localNameTokenKind = this.tok.kind;
+				localName = this.tok.value;
+				importedName = jsc.Parser.KnownIdentifiers.Default;
+				importedKind = jsc.AST.ImportSpecifierKind.DEFAULT;
+
+				this.next();
+				break;
+			}
+			case jsc.Parser.ImportSpecifierKind.NAMED:
+			{
+				// ImportSpecifier :
+				// ImportedBinding
+				// IdentifierName as ImportedBinding
+				//
+				// Example:
+				//   A
+				//   A as B
+				//
+				this.failWhenFalse(this.matchIdentifierOrKeyword(), "Expected an identifier or keyword.");
+
+				localNameTokenKind = this.tok.kind;
+				localName = this.tok.value;
+				importedName = localName;
+				importedKind = jsc.AST.ImportSpecifierKind.NAMED;
+
+				this.next();
+
+				if(this.matchKeyword(jsc.Parser.KnownIdentifiers.As))
+				{
+					this.next();
+					this.matchOrFail(jsc.Token.Kind.IDENTIFIER, "Expected a variable name for the import declaration.");
+
+					localNameTokenKind = this.tok.kind;
+					localName = this.tok.value;
+
+					this.next();
+				}
+
+				break;
+			}
+			case jsc.Parser.ImportSpecifierKind.NAMESPACE:
+			{
+				// NamespaceImport :
+				// * as ImportedBinding
+				//
+				// Example:
+				//   * as namespace
+				//
+				this.matchOrFail(jsc.Token.Kind.TIMES);
+
+				importedName = "*";
+				importedKind = jsc.AST.ImportSpecifierKind.NAMESPACE;
+
+				this.next();
+
+				this.failWhenFalse(this.matchKeyword(jsc.Parser.KnownIdentifiers.As), "Expected 'as' before imported binding name.");
+				this.next();
+
+				this.matchOrFail(jsc.Token.Kind.IDENTIFIER, "Expected a variable name for the import declaration.");
+
+				localNameTokenKind = this.tok.kind;
+				localName = this.tok.value;
+
+				this.next();
+				break;
+			}
+		}
+
+		this.failWhenTrue((localNameTokenKind & jsc.Token.KEYWORD), "Cannot use keyword as imported binding name.");
+
+		declResult = this.declareVariable(localName, jsc.Parser.DeclarationKind.CONST, (specifierKind === jsc.Parser.ImportSpecifierKind.NAMESPACE ? jsc.Parser.DeclarationImportKind.IMPORTED_NS : jsc.Parser.DeclarationImportKind.IMPORTED));
+
+		if(declResult !== jsc.Parser.DeclarationResultFlags.VALID)
+		{
+			this.failWhenTrueInStrictMode((declResult & jsc.Parser.DeclarationResultFlags.INVALID_STRICT_MODE), "Cannot declare an imported binding named '" + localName + "' in strict mode.");
+
+			if(!!(declResult & jsc.Parser.DeclarationResultFlags.INVALID_DUPLICATED))
+				this.fail("Cannot declare an imported binding name more than once. Binding name='" + localName + "'");
+		}
+
+		return context.createImportSpecifier(location, importedKind, importedName, localName);
 	},
 
-	parseClassStatement: function(context) {
-		// TODO: IMPLEMENT
-		throw new Error("NOT IMPLEMENTED");
+	parseExportDeclaration: function(context) {
+		var exportLocation = this.tokenLocation;
+		var moduleName = null;
+		var localName = null;
+		var result = null;
+
+		this.matchOrFail(jsc.Token.Kind.EXPORT);
+		this.next();
+
+		switch(this.tok.kind)
+		{
+			case jsc.Token.Kind.TIMES:
+			{
+				// export * FromClause ;
+				//
+				this.next();
+				this.failWhenFalse(this.matchKeyword(jsc.Parser.KnownIdentifiers.From), "Exported a 'from' before the exported module name.");
+				this.next();
+
+				moduleName = this.parseModuleName(context);
+				this.failWhenNull(moduleName, "Cannot parse the 'from' clause.");
+				this.failWhenFalse(this.insertSemicolon(), "Exported a ';' following a targeted export declaration.");
+
+				return context.createExportAllDeclarationStatement(exportLocation, moduleName);
+			}
+			case jsc.Token.Kind.DEFAULT:
+			{
+				// export default HoistableDeclaration[Default]
+				// export default ClassDeclaration[Default]
+				// export default [lookahead not-in {function, class}] AssignmentExpression[In] ;
+				//
+				var isFunctionOrClassDecl = false;
+				var restorePoint = null;
+
+				this.next();
+
+				restorePoint = this.createRestorePoint();
+
+				if(this.match(jsc.Token.Kind.FUNCTION) || this.match(jsc.Token.Kind.CLASS))
+				{
+					isFunctionOrClassDecl = true;
+					this.next();
+
+					if(this.match(jsc.Token.Kind.IDENTIFIER))
+						localName = this.tok.value;
+
+					restorePoint.restore(this);
+				}
+
+				if(jsc.Utils.isNotNull(localName))
+				{
+					if(this.match(jsc.Token.Kind.FUNCTION))
+						result = this.parseFunctionDeclaration(context);
+					else
+						result = this.parseClassDeclaration(context);
+				}
+				else
+				{
+					// export default expr;
+					//
+					// should be treated as the following:
+					//
+					// const *default* = expr;
+					// export { *default* as default }
+					//
+					// In the example above, *default* is the invisible variable.
+					//
+					var location = this.tokenLocation;
+					var begin = this.tokenBeginPosition;
+					var initialAssignmentCount = this.state.assignmentCount;
+					var expr = this.parseAssignment(context);
+					var assignExpr = null;
+					var declResult = 0;
+
+					this.failWhenNull(expr, "Cannot parse expression.");
+
+					declResult = this.declareVariable(jsc.Parser.KnownIdentifiers.StarDefault, jsc.Parser.DeclarationKind.CONST);
+
+					if(!!(declResult & jsc.Parser.DeclarationResultFlags.INVALID_DUPLICATED))
+						this.fail("There can be only one 'default' export.");
+
+					assignExpr = context.createAssignResolveExpression(location, jsc.Parser.KnownIdentifiers.StarDefault, expr, initialAssignmentCount !== this.state.assignmentCount);
+					result = context.createExpressionStatement(location, begin, this.tokenLine, assignExpr);
+
+					if(!isFunctionOrClassDecl)
+						this.failWhenFalse(this.insertSemicolon(), "Exported a ';' following a targeted export declaration.");
+
+					localName = jsc.Parser.KnownIdentifiers.StarDefault;
+				}
+
+				this.failWhenNull(result, "Cannot parse the declaration.");
+				this.failWhenFalse(this.currentScope.exportName(jsc.Parser.KnownIdentifiers.Default), "There can only be one 'default' export.");
+
+				this.currentScope.exportBinding(localName);
+
+				return context.createExportDefaultDeclarationStatement(exportLocation, result, localName);
+			}
+			case jsc.Token.Kind.OPEN_BRACE:
+			{
+				// export ExportClause FromClause ;
+				// export ExportClause ;
+				//
+				// ExportClause :
+				// { }
+				// { ExportsList }
+				// { ExportsList , }
+				//
+				// ExportsList :
+				// ExportSpecifier
+				// ExportsList , ExportSpecifier
+				//
+				var specifier = null;
+				var specifierList = context.createExportSpecifierList();
+				var exportContext = {
+					localNames: [],
+					hasKeywordForLocalBindings: false
+				};
+
+				this.next();
+
+				while(!this.match(jsc.Token.Kind.CLOSE_BRACE))
+				{
+					this.failWhenFalse(this.matchIdentifierOrKeyword(), "Expected a variable name for the export declaration.");
+
+					specifier = this.parseExportSpecifier(context, exportContext);
+					this.failWhenNull(specifier, "Cannot parse the named export.");
+					specifierList.append(specifier);
+
+					if(!this.consume(jsc.Token.Kind.COMMA))
+						break;
+				}
+
+				this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
+
+				if(this.matchKeyword(jsc.Parser.KnownIdentifiers.From))
+				{
+					this.next();
+
+					moduleName = this.parseModuleName(context);
+					this.failWhenNull(moduleName, "Cannot parse the 'from' clause.");
+				}
+
+				this.failWhenFalse(this.insertSemicolon(), "Expected a ';' following a targeted export declaration.");
+
+				if(!moduleName)
+				{
+					this.failWhenTrue(exportContext.hasKeywordForLocalBindings, "Cannot use keyword as exported variable name.");
+
+					// since this export declaration does not have a module specified; it exports the local bindings.
+					//
+					// the export declaration with a module specified does not have any effect on the current module's scope,
+					// however, the export named declaration without a module specified references the local binding names.
+					//
+					// for example:
+					//    export { A, B, C as D } from "module"
+					// does not have an effect on the current module's scope, but...
+					//    export { A, B, C as D }
+					// will reference the current module's bindings.
+					//
+					exportContext.localNames.forEach(function(name) {
+						this.currentScope.exportBinding(name);
+					}, this);
+				}
+
+				return context.createExportNamedDeclarationStatement(exportLocation, specifierList, moduleName);
+			}
+			default:
+			{
+				// export VariableStatement
+				// export Declaration
+				//
+				switch(this.tok.kind)
+				{
+					case jsc.Token.Kind.VAR:
+						result = this.parseVarDeclaration(context, jsc.Parser.DeclarationKind.VAR, true);
+						break;
+					case jsc.Token.Kind.CONST:
+						result = this.parseVarDeclaration(context, jsc.Parser.DeclarationKind.CONST, true);
+						break;
+					case jsc.Token.Kind.LET:
+						result = this.parseVarDeclaration(context, jsc.Parser.DeclarationKind.LET, true);
+						break;
+					case jsc.Token.Kind.FUNCTION:
+						result = this.parseFunctionDeclaration(context, true);
+						break;
+					case jsc.Token.Kind.CLASS:
+						result = this.parseClassDeclaration(context, true);
+						break;
+					default:
+						this.fail("Expected either a declaration or a variable statement.");
+						break;
+				}
+
+				this.failWhenNull(result, "Cannot parse the declaration.");
+
+				return context.createExportLocalDeclarationStatement(exportLocation, result);
+			}
+		}
+
+		return null;
+	},
+
+	parseExportSpecifier: function(context, exportContext) {
+		// ExportSpecifier :
+		// IdentifierName
+		// IdentifierName as IdentifierName
+		//
+		var location = this.tokenLocation;
+		var localName = null;
+		var exportedName = null;
+
+		this.failWhenFalse(this.matchIdentifierOrKeyword(), "Expected an identifier or keyword.");
+
+		if(this.tok.isKeyword)
+			exportContext.hasKeywordForLocalBindings = true;
+
+		localName = this.tok.value;
+		exportedName = localName;
+
+		this.next();
+
+		if(this.matchKeyword(jsc.Parser.KnownIdentifiers.As))
+		{
+			this.next();
+			this.failWhenFalse(this.matchIdentifierOrKeyword(), "Expected an exported name for the export declaration.");
+
+			exportedName = this.tok.value;
+			this.next();
+		}
+
+		this.failWhenFalse(this.currentScope.exportName(exportedName), "Cannot export the duplicate name '" + exportedName + "'.");
+		exportContext.localNames.push(localName);
+
+		return context.createExportSpecifier(location, exportedName, localName);
+	},
+
+	parseClassDeclaration: function(context, isExported) {
+		isExported = jsc.Utils.valueOrDefault(isExported, false);
+
+		var location = this.tokenLocation;
+		var beginLine = this.tokenLine;
+		var classResult = null;
+		var declResult = 0;
+
+		this.matchOrFail(jsc.Token.Kind.CLASS);
+
+		classResult = this.parseClass(context, true);
+		this.failWhenNull(classResult.expression, "Cannot parse class.");
+
+		declResult = this.declareVariable(classResult.info.className, jsc.Parser.DeclarationKind.LET);
+
+		if(!!(declResult & jsc.Parser.DeclarationResultFlags.INVALID_DUPLICATED))
+			this.fail("Cannot declare a class more than once. Class name='" + classResult.info.className + "'.");
+
+		if(isExported)
+		{
+			this.failWhenFalse(this.currentScope.exportName(classResult.info.className), "Cannot export a duplicate class name. Class name='" + classResult.info.className + "'.");
+			this.currentScope.exportBinding(classResult.info.className);
+		}
+
+		return context.createClassDeclarationStatement(location, beginLine, this.tokenLine, classResult.expression);
 	},
 
 	parseClass: function(context, needsName) {
+		var location = this.tokenLocation;
+		var className = null;
+		var classScope = null;
+		var parentClass = null;
+		var constructorKind = 0;
+		var constructorExpr = null;
+		var instanceMethods = null;
+		var staticMethods = null;
 		var result = {
 			expression: null,
 			info: new jsc.ParserClassInfo()
 		};
 
-		this.fail("NOT IMPLEMENTED");
+		this.matchOrFail(jsc.Token.Kind.CLASS);
+		this.next();
+
+		classScope = this.pushScope();
+		classScope.strictMode = true;
+
+		try
+		{
+			if(this.match(jsc.Token.Kind.IDENTIFIER))
+			{
+				className = this.tok.value;
+				result.info.className = className;
+
+				this.next();
+				this.failWhenTrue(classScope.declareVariable(className) & jsc.Parser.DeclarationResultFlags.INVALID_STRICT_MODE, "The class name '" + className + "' is invalid.");
+			}
+			else if(needsName)
+			{
+				if(this.match(jsc.Token.Kind.OPEN_BRACE))
+					this.fail("Class statements must have a name.");
+
+				this.failForUsingKeyword("class name");
+				this.fail();
+			}
+			else
+			{
+				className = "";
+			}
+
+			if(this.consume(jsc.Token.Kind.EXTENDS))
+			{
+				parentClass = this.parseMember(context);
+				this.failWhenNull(parentClass, "Cannot parse the parent class name.");
+			}
+
+			constructorKind = (parentClass ? jsc.Parser.ConstructorKind.DERIVED : jsc.Parser.ConstructorKind.BASE);
+
+			this.consumeOrFail(jsc.Token.Kind.OPEN_BRACE);
+
+			while(!this.match(jsc.Token.Kind.CLOSE_BRACE))
+			{
+				if(this.match(jsc.Token.Kind.SEMICOLON))
+				{
+					this.next();
+					continue;
+				}
+
+				var methodLocation = this.tokenLocation;
+				var methodBegin = this.tokenBegin;
+				var methodInfo = null;
+				var method = null;
+				var isStaticMethod = (this.match(jsc.Token.Kind.RESERVED_STRICT) && this.tok.value === "static");
+				var name = null;
+				var computedPropertyName = null;
+				var property = null;
+				var isGetter = false;
+				var isSetter = false;
+				var isConstructor = false;
+
+				if(isStaticMethod)
+					this.next();
+
+				switch(this.tok.kind)
+				{
+					case jsc.Token.Kind.STRING:
+						name = this.tok.value;
+						this.next();
+						break;
+					case jsc.Token.Kind.IDENTIFIER:
+						name = this.tok.value;
+						this.next();
+
+						if(this.match(jsc.Token.Kind.IDENTIFIER) || this.match(jsc.Token.Kind.STRING) || this.match(jsc.Token.Kind.DOUBLE) || this.match(jsc.Token.Kind.INTEGER))
+						{
+							isGetter = (name === jsc.Parser.KnownIdentifiers.Get);
+							isSetter = (name === jsc.Parser.KnownIdentifiers.Set);
+						}
+						break;
+					case jsc.Token.Kind.DOUBLE:
+					case jsc.Token.Kind.INTEGER:
+						name = this.tok.value.toString();
+						this.next();
+						break;
+					case jsc.Token.Kind.OPEN_BRACKET:
+						this.next();
+						computedPropertyName = this.parseAssignment(context);
+						this.failWhenNull(computedPropertyName, "Cannot parse the computed property name.");
+						this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACKET);
+						break;
+					default:
+						this.fail();
+				}
+
+				if(isGetter || isSetter)
+				{
+					property = this.parseGetterSetter(context, (isGetter ? jsc.AST.PropertyKindFlags.GETTER : jsc.AST.PropertyKindFlags.SETTER), methodBegin, jsc.Parser.ConstructorKind.NONE, true);
+					this.failWhenNull(property, "Cannot parse this method.");
+				}
+				else
+				{
+					isConstructor = (!isStaticMethod && name === jsc.Parser.KnownIdentifiers.Constructor);
+
+					methodInfo = this.parseFunction(context, jsc.Parser.Mode.METHOD, false, false, (isConstructor ? constructorKind : jsc.Parser.ConstructorKind.NONE), jsc.Parser.FunctionParseKind.NORMAL, true, methodBegin);
+					this.failWhenNull(methodInfo, "Cannot parse this method.");
+
+					this.failWhenTrue((!computedPropertyName && !!(this.declareVariable(name) & jsc.Parser.DeclarationResultFlags.INVALID_STRICT_MODE)), "Cannot declare the method named '" + methodInfo.name + "'.");
+
+					methodInfo.name = isConstructor ? className : name;
+					method = context.createFunctionExpression(methodLocation, methodInfo);
+
+					if(isConstructor)
+					{
+						this.failWhenTrue(!!constructorExpr, "Cannot declare multiple constructors in a single class.");
+						constructorExpr = method;
+						continue;
+					}
+
+					this.failWhenTrue(isStaticMethod && methodInfo.name === jsc.Parser.KnownIdentifiers.Prototype, "Cannot declare a static method named 'prototype'.");
+
+					if(computedPropertyName)
+						property = context.createProperty(computedPropertyName, method, jsc.AST.PropertyKindFlags.CONSTANT | jsc.AST.PropertyKindFlags.COMPUTED, jsc.AST.PropertyPutKind.UNKNOWN, true);
+					else
+						property = context.createProperty(methodInfo.name, method, jsc.AST.PropertyKindFlags.CONSTANT, jsc.AST.PropertyPutKind.UNKNOWN, true);
+				}
+
+				if(isStaticMethod)
+					staticMethods = context.createPropertyList(methodLocation, property, staticMethods);
+				else
+					instanceMethods = context.createPropertyList(methodLocation, property, instanceMethods);
+			}
+		}
+		finally
+		{
+			if(classScope)
+				this.popScope(true);
+		}
+
+		this.consumeOrFail(jsc.Token.Kind.CLOSE_BRACE);
+		result.expression = context.createClassExpression(location, className, constructorExpr, parentClass, instanceMethods, staticMethods);
 
 		return result;
+	},
+
+	parseModuleName: function(context) {
+		var location = this.tokenLocation;
+		var moduleName = null;
+
+		this.failWhenFalse(this.match(jsc.Token.Kind.STRING), "Imported module names must be a string literal.");
+
+		moduleName = this.tok.value;
+		this.next();
+
+		return context.createModuleName(location, moduleName);
 	},
 
 	parseBlock: function(context) {
@@ -953,8 +1575,8 @@ jsc.Parser = Object.define({
 
 		if(isExported)
 		{
-			this.failWhenFalse(this.exportName(name), "Cannot export a duplicate name '" + name + "'");
-			this.exportBinding(name);
+			this.failWhenFalse(this.currentScope.exportName(name), "Cannot export a duplicate name '" + name + "'");
+			this.currentScope.exportBinding(name);
 		}
 
 		return context.createBindingPattern(location, name, bindingContextKind);
@@ -2601,6 +3223,8 @@ jsc.Parser = Object.define({
 	},
 	
 	parseFunctionDeclaration: function(context, isExported) {
+		isExported = jsc.Utils.valueOrDefault(isExported, false);
+
 		var location = this.tokenLocation;
 		var begin = this.tokenBegin;
 		var functionInfo = null;
@@ -2716,7 +3340,7 @@ jsc.Parser = Object.define({
 			functionInfo.bodyBeginColumn = beginColumn;
 			this.state.lastFunctionName = lastName;
 
-			functionInfo.body = this.parseFunctionBody(context, begin, beginColumn, functionKeywordBegin, nameBegin, parametersBegin, constructorKind, bodyKind, functionInfo.parameterCount, mode);
+			functionInfo.body = this.parseFunctionBody(context, begin, beginColumn, functionKeywordBegin, nameBegin, parametersBegin, constructorKind, bodyKind, functionInfo.parameters, mode);
 			this.restoreState(lastState);
 
 			this.failWhenNull(functionInfo.body, "Unable to parse the body of this " + this.getFunctionModeDescription(mode));
@@ -2761,7 +3385,7 @@ jsc.Parser = Object.define({
 		return functionInfo;
 	},
 
-	parseFunctionBody: function(context, begin, beginColumn, functionKeywordBegin, nameBegin, parametersBegin, constructorKind, bodyKind, parameterCount, mode) {
+	parseFunctionBody: function(context, begin, beginColumn, functionKeywordBegin, nameBegin, parametersBegin, constructorKind, bodyKind, parameters, mode) {
 		var isArrowFunction = (bodyKind !== jsc.Parser.FunctionBodyKind.NORMAL);
 		var isArrowFunctionExpression = (bodyKind === jsc.Parser.FunctionBodyKind.ARROW_EXPRESSION);
 		var endColumn = 0;
@@ -2773,20 +3397,23 @@ jsc.Parser = Object.define({
 			if(this.match(jsc.Token.Kind.CLOSE_BRACE))
 			{
 				endColumn = this.tokenColumn;
-				return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
+				return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameters, [], this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
 			}
 		}
 
 		var lastStatementDepth = this.state.statementDepth;
+		var bodyStatements = null;
 
 		try
 		{
 			this.state.statementDepth = 0;
 
 			if(bodyKind === jsc.Parser.FunctionBodyKind.ARROW_EXPRESSION)
-				this.failWhenNull(this.parseArrowFunctionSingleExpressionBodyStatementList(context), "Cannot parse body of this arrow function.");
+				bodyStatements = this.parseArrowFunctionSingleExpressionBodyStatementList(context);
 			else
-				this.failWhenTrue((this.parseStatementList(context, true).length === 0), (bodyKind === jsc.Parser.FunctionBodyKind.NORMAL ? "Cannot parse body of this function." : "Cannot parse body of this arrow function."));
+				bodyStatements = this.parseStatementList(context, true);
+
+			this.failWhenTrue((bodyStatements.length === 0), (bodyKind === jsc.Parser.FunctionBodyKind.NORMAL ? "Cannot parse body of this function." : "Cannot parse body of this arrow function."));
 		}
 		finally
 		{
@@ -2794,7 +3421,7 @@ jsc.Parser = Object.define({
 		}
 
 		endColumn = this.tokenColumn;
-		return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameterCount, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
+		return context.createFunctionMetadata(begin, this.tokenLocation, beginColumn, endColumn, functionKeywordBegin, nameBegin, parametersBegin, parameters, bodyStatements, this.inStrictMode, isArrowFunction, isArrowFunctionExpression);
 	},
 
 	parseFunctionParameters: function(context, mode, functionInfoRef) {
@@ -2998,7 +3625,7 @@ jsc.Parser = Object.define({
 		if(this.match(jsc.Token.Kind.OPEN_BRACE))
 		{
 			this.fail();
-			return null;
+			return [];
 		}
 
 		var location = this.tokenLocation;
@@ -3605,6 +4232,14 @@ jsc.Parser = Object.define({
 		return (this.match(jsc.Token.Kind.LET) && !this.inStrictMode);
 	},
 
+	matchKeyword: function(name) {
+		return (this.tok.kind === jsc.Token.Kind.IDENTIFIER && this.tok.value === name);
+	},
+
+	matchIdentifierOrKeyword: function() {
+		return (this.tok.kind === jsc.Token.Kind.IDENTIFIER || this.tok.isKeyword);
+	},
+
 	isArrowFunctionParameters: function() {
 		var isArrowFunction = false;
 		var isArrowFunctionParams = false;
@@ -3867,6 +4502,12 @@ Object.extend(jsc.Parser, {
 		VALID: 0,
 		INVALID_STRICT_MODE: 1,
 		INVALID_DUPLICATED: 2
+	},
+
+	ImportSpecifierKind: {
+		DEFAULT: 0,
+		NAMED: 1,
+		NAMESPACE: 2
 	},
 
 	FunctionParseKind: {
@@ -4420,6 +5061,8 @@ jsc.Parser.KnownIdentifiers = {
 	Proto: "__proto__",
 	Prototype: "prototype",
 	Constructor: "constructor",
+	Default: "default",
+	StarDefault: "*default*",
 	Target: "target",
 	This: "this",
 	Get: "get",
