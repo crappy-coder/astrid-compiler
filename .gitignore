@@ -4,6 +4,7 @@ coverage
 lib-cov
 logs
 /scripts/playground-writer-output.js
+/tests/output
 node_modules
 pids
 
